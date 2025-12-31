@@ -1,0 +1,27 @@
+text_expansion:
+  description: >
+    Take the input subject "{subject}" and body "{body}" text and expand all shortcuts and abbreviations.
+    Convert informal text speak like 'u', 'r', 'btw', 'idk', etc. into proper words.
+    Return ONLY the updated subject and body text - do not create any email structure or formatting.
+  expected_output: >
+    Just the expanded subject and body text content, nothing else. Format: Subject: [expanded subject]\nBody: [expanded body]
+  agent: textExpansionAgent
+
+
+email_composition:
+  description: >
+    Receive the expanded subject and body text from the text expansion task and compose a complete, professional email.
+    Use the provided expanded subject as the email subject line and the expanded body as the email content.
+    Add proper email structure with greeting, sign-off, and professional formatting.
+  expected_output: >
+    A complete, professional email with proper structure, using the expanded subject and body text from the previous task.
+  agent: emailDraftingAgent
+
+
+email_summarization:
+  description: >
+    Summarize the provided lengthy email thread into concise key points.
+    Capture the main ideas, decisions, and action items in a clear and easy-to-understand format.
+  expected_output: >
+    A concise summary of the email thread in key points, each on a new line.
+  agent: summarizeMailAgent

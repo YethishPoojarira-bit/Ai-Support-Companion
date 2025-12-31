@@ -1,0 +1,29 @@
+[project]
+name = "mailcrew"
+version = "0.1.0"
+description = "MailCrew using crewAI"
+authors = [{ name = "Your Name", email = "you@example.com" }]
+requires-python = ">=3.10,<3.14"
+dependencies = [
+    "crewai[tools]==1.7.2",
+    "azure-ai-inference==1.0.0b9",
+    "litellm>=1.75,<1.77",
+    "python-dotenv==1.1.1",
+    "fastapi>=0.127.0",
+    "apscheduler>=3.11.2",
+]
+
+[project.scripts]
+mailcrew = "mailcrew.main:run"
+run_crew = "mailcrew.main:run"
+train = "mailcrew.main:train"
+replay = "mailcrew.main:replay"
+test = "mailcrew.main:test"
+run_with_trigger = "mailcrew.main:run_with_trigger"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.crewai]
+type = "crew"

@@ -1,0 +1,7 @@
+CORPORATE GOAL SUMMARY
+==================================================
+
+Goal Type: .NET Backend Creation
+Description: Set up a .NET backend creation
+Timeline: 2 months
+Key Metrics: Not specified

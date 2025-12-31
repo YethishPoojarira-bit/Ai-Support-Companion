@@ -1,0 +1,77 @@
+gather_goal_type:
+  description: >
+    Have a natural conversation with the user to understand what type of corporate goal they want to set.
+    Ask them about their goal in a friendly, conversational way. Extract the goal type from their response.
+    
+    Goal types could include: Revenue Growth, Customer Satisfaction, Skill Enhancement, Market Expansion,
+    Product Development, Team Building, Operational Efficiency, or any other type they mention.
+    
+    Be warm and encouraging. Make them feel comfortable discussing their aspirations.
+  expected_output: >
+    The type of corporate goal the user wants to set, extracted from the conversation.
+  agent: goal_analyst
+
+gather_goal_description:
+  description: >
+    Continue the conversation to understand what exactly the user wants to achieve with this goal.
+    Ask follow-up questions to get a detailed description of their aspirations and objectives.
+    
+    Listen carefully to their response and extract key details about:
+    - What they want to accomplish
+    - Why this goal is important to them
+    - What success looks like
+    
+    Be genuinely interested and help them articulate their vision clearly.
+  expected_output: >
+    A detailed description of what the user wants to achieve with their goal.
+  agent: goal_analyst
+
+gather_timeline:
+  description: >
+    Ask the user about their timeline for achieving this goal in a conversational way.
+    Help them think about realistic timeframes without being prescriptive.
+    
+    The timeline could be expressed as:
+    - Specific quarters (Q1 2026, Q2 2026)
+    - Duration (3 months, 6 months, 1 year)
+    - Specific dates (by end of 2026)
+    - Milestone-based (when X is achieved)
+    
+    Encourage them to be specific but realistic.
+  expected_output: >
+    When the user wants to achieve their goal.
+  agent: goal_analyst
+
+gather_metrics:
+  description: >
+    Ask the user how they will measure success for this goal. Help them think about
+    concrete, measurable metrics that will indicate they're making progress or have achieved the goal.
+    
+    Prompt them to think about:
+    - Quantitative metrics (numbers, percentages, revenue targets)
+    - Qualitative indicators (skills learned, certifications earned)
+    - Milestones or checkpoints
+    
+    Be supportive and help them define at least 2-3 meaningful metrics.
+  expected_output: >
+    A list of 2-5 key metrics that will measure success for this goal.
+  agent: goal_analyst
+
+create_goal_summary:
+  description: >
+    Based on all the information gathered from the conversation:
+    - Goal Type: {goal_type}
+    - Description: {goal_description}
+    - Timeline: {timeline}
+    - Key Metrics: {metrics}
+    
+    Create a professional, comprehensive goal summary that includes:
+    1. A clear goal statement that captures the essence of what they want to achieve
+    2. The complete details of the goal organized in a structured format
+    3. 3-5 specific, actionable next steps they can take immediately to start working toward this goal
+    4. Words of encouragement and motivation
+    
+    Make it inspiring, professional, and actionable. This summary should serve as their roadmap.
+  expected_output: >
+    A complete goal summary with goal statement, details, and 3-5 actionable next steps formatted in a clear, professional manner.
+  agent: goal_summarizer

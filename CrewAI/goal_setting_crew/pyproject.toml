@@ -1,0 +1,25 @@
+[tool.poetry]
+name = "goal_setting_crew"
+version = "0.1.0"
+description = "Interactive corporate goal setting crew using CrewAI with human interaction"
+authors = ["Your Name <your.email@example.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<=3.13"
+crewai = {extras = ["tools"], version = "^0.86.0"}
+python-dotenv = "^1.0.0"
+langchain-openai = "^0.2.14"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+goal_setting_crew = "goal_setting_crew.main:run"
+train = "goal_setting_crew.main:train"
+replay = "goal_setting_crew.main:replay"
+test = "goal_setting_crew.main:test"

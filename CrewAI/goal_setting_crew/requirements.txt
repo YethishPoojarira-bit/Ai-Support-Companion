@@ -1,0 +1,4 @@
+# Dependencies
+crewai[tools]>=0.86.0
+python-dotenv>=1.0.0
+langchain-openai>=0.2.14
