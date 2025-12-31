@@ -1,0 +1,14 @@
+[core]
+	repositoryformatversion = 0
+	filemode = false
+	bare = false
+	logallrefupdates = true
+	symlinks = false
+	ignorecase = true
+[branch "master"]
+	gk-last-accessed = 2025-12-30T12:14:18.432Z
+	remote = origin
+	merge = refs/heads/master
+[remote "origin"]
+	url = https://github.com/YethishPoojarira-bit/ADO_Issue_Creation.git
+	fetch = +refs/heads/*:refs/remotes/origin/*

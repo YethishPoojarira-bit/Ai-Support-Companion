@@ -1,0 +1,35 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+*.env
+
+# Ignore nested git metadata (if this folder is included in a parent repo)
+.git/
+
+# IDE and editor folders
+.vscode/
+/.idea/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+
+# Outputs and artifacts
+output/
+*.sqlite3
+
+# Python packaging
+pip-wheel-metadata/
