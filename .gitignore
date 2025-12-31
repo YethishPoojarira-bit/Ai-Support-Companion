@@ -1,0 +1,41 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+build/
+dist/
+.env
+.env.*
+venv/
+env/
+.Python
+# VSCode
+.vscode/
+# Pytest
+.pytest_cache/
+# Jupyter
+.ipynb_checkpoints/
+# Logs
+*.log
+# OS
+Thumbs.db
+.DS_Store
+# outputs
+**/output/
+# Ignore virtualenvs
+**/.venv/
+**/venv/
+**/env/
+# Ignore nested git metadata
+**/.git/
+# Package artifacts
+**/*.egg-info/
+**/dist/
+**/build/
+# Python cache
+**/__pycache__/
+# IDE
+.vscode/
+# outputs
+**/output/
