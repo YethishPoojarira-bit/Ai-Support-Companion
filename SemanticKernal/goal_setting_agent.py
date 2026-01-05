@@ -123,9 +123,9 @@ Your job is to:
 Be conversational and intelligent. Extract information from what users say and call the appropriate functions.
 Don't ask for the same information twice - use get_goal_status to see what you have.
 """
-        
         self.chat_history.add_system_message(self.system_message)
     
+
     async def chat(self, user_input: str) -> str:
         """Process user input and get agent response"""
         
@@ -158,6 +158,7 @@ Don't ask for the same information twice - use get_goal_status to see what you h
         
         return "I apologize, I couldn't process that. Could you try again?"
     
+
     async def run(self):
         """Main conversation loop"""
         
@@ -229,17 +230,9 @@ Don't ask for the same information twice - use get_goal_status to see what you h
 
 
 async def main():
-    """Main entry point"""
-    
-    # Check for API key
-    if not os.getenv("AZURE_OPENAI_API_KEY"):
-        print("⚠️  Please set your Azure OpenAI credentials in the .env file")
-        return
-    
     # Create and run agent
     agent = GoalSettingAgent()
     await agent.run()
-
 
 if __name__ == "__main__":
     asyncio.run(main())
