@@ -292,6 +292,7 @@ CONVERSATION FLOW:
 5. Be conversational and helpful
 
 CRITICAL RULE:
+- Return ONLY valid JSON matching the schema.
 - If the user asks to change, update, delete, add, or save a user story,
   you MUST call the appropriate tool.
 - You are NOT allowed to describe changes in text.
@@ -300,6 +301,7 @@ CRITICAL RULE:
 
 
 IMPORTANT: 
+- Return ONLY valid JSON matching the schema.
 - Be thorough but don't invent requirements
 - Flag ambiguities and ask for clarification
 - Maintain traceability to source text
@@ -336,17 +338,13 @@ IMPORTANT:
                 return f.read()
         
         elif file_ext == ".docx":
-            if not DOCX_AVAILABLE:
-                raise ImportError(
-                    "python-docx is required for .docx files. "
-                    "Install it with: pip install python-docx"
-                )
             doc = Document(path)
             return "\n".join([para.text for para in doc.paragraphs])
         
         else:
             raise ValueError(f"Unsupported file type: {file_ext}. Use .txt or .docx")
     
+
     async def extract_user_stories(self, document_content: str, file_name: str = "document") -> dict:
         """
         Extract user stories from document using the agent.
@@ -380,35 +378,42 @@ Extract all user stories, requirements, and features. For each one, provide:
 Return ONLY valid JSON matching the schema. Be thorough.
 """
 
-        # Call the agent with structured output
+        # Call the agent
         try:
             result = await self.agent.run(extraction_prompt)
-            
-            # The response is already validated as ExtractionResponse
-            extraction_response: ExtractionResponse = result.data
-            
-            # Convert to dict for backward compatibility
-            parsed_response = extraction_response.model_dump()
-            self.extracted_stories = parsed_response
-            
+
+            if result is None:
+                return {
+                    "error": "Agent returned None - check agent configuration",
+                    "raw_response": "No response from agent"
+                }
+
+            response_text = result.text
+
+            # Use Pydantic's model_validate_json for direct parsing and validation
+            extraction_response = ExtractionResponse.model_validate_json(response_text)
+            validated_response = extraction_response.model_dump()
+            self.extracted_stories = validated_response
+
             # Store in conversation history
             self.conversation_history.append({
                 "role": "user",
-                "content": extraction_prompt
+                "content": extraction_prompt[:500] + "..." if len(extraction_prompt) > 500 else extraction_prompt
             })
             self.conversation_history.append({
                 "role": "assistant",
-                "content": json.dumps(parsed_response, indent=2)
+                "content": json.dumps(validated_response, indent=2)
             })
-            
-            return parsed_response
-            
+
+            return validated_response
+        
         except Exception as e:
             error_msg = f"Extraction failed: {str(e)}"
             return {
                 "error": error_msg,
                 "raw_response": str(e)
             }
+    
     
     async def ask_clarification(self, question: str) -> str:
         """
@@ -429,6 +434,7 @@ Return ONLY valid JSON matching the schema. Be thorough.
         
         print(f"🤖 Agent: {response}\n")
         return response
+    
     
     async def refine_story(self, story_id: str, refinement_request: str) -> dict:
         """
@@ -457,7 +463,9 @@ Return ONLY the updated user story in JSON format with the same schema."""
             
             if json_start >= 0 and json_end > json_start:
                 json_text = response_text[json_start:json_end]
-                refined_story = json.loads(json_text)
+                # Use Pydantic to validate the refined user story
+                user_story = UserStory.model_validate_json(json_text)
+                refined_story = user_story.model_dump()
                 
                 # Update in extracted_stories if available
                 if self.extracted_stories and "user_stories" in self.extracted_stories:
@@ -469,9 +477,10 @@ Return ONLY the updated user story in JSON format with the same schema."""
                 return refined_story
             else:
                 return {"error": "Could not parse refined story", "raw_response": response_text}
-        except json.JSONDecodeError as e:
-            return {"error": f"JSON parse error: {str(e)}", "raw_response": response_text}
+        except Exception as e:
+            return {"error": f"Validation or parse error: {str(e)}", "raw_response": response_text}
     
+
     def display_stories(self, stories_data: dict):
         """
         Display extracted user stories in a beautiful, consistent format.
@@ -583,6 +592,7 @@ Return ONLY the updated user story in JSON format with the same schema."""
         print(f"✨ End of User Stories Report")
         print(f"{'='*80}\n")
     
+
     def _format_badge(self, value: str, badge_type: str) -> str:
         """
         Format a badge for priority or confidence.
@@ -604,6 +614,7 @@ Return ONLY the updated user story in JSON format with the same schema."""
             return f"{emoji} Confidence: {value}"
         return value
     
+
     def _wrap_text(self, text: str, width: int) -> list:
         """
         Wrap text to specified width, preserving word boundaries.
@@ -635,6 +646,7 @@ Return ONLY the updated user story in JSON format with the same schema."""
         
         return lines if lines else [""]
     
+
     def save_stories(self, file_name: str = None) -> Path:
         """
         Save extracted and approved user stories to JSON file.
@@ -739,18 +751,20 @@ async def conversational_mode(file_path: str):
                         print("⏭️  Skipping this clarification...")
                         break
 
-                    # Send the user's response to the agent for processing
+                    # Send the user's response to the agent for conversational processing
                     clarification_prompt = f"""Regarding user story {story_id}, I asked: "{question}"
 
 The user responded: "{user_response}"
 
-Based on this response, please:
-1. Determine if the clarification is sufficient or if you need more information
-2. If sufficient, update the user story {story_id} accordingly using the appropriate tools
-3. If you need more information, ask a follow-up question
-4. Be specific about what changes you're making and why
+Please engage in natural conversation about this clarification. You can:
+- Ask follow-up questions if you need more information
+- Discuss the implications of their response
+- Suggest how this affects the user story
+- Ask for confirmation before making changes
 
-Remember: Use tools to make actual changes, don't just describe them."""
+Do NOT automatically update the user story. Have a conversation first and only use tools when the user explicitly asks you to make changes or when you have enough information to proceed.
+
+Keep your response conversational and helpful."""
 
                     print("\n🤖 Agent: ", end="", flush=True)
                     agent_response = ""
@@ -760,23 +774,34 @@ Remember: Use tools to make actual changes, don't just describe them."""
                             agent_response += update.text
                     print()
 
-                    # Check if the agent is satisfied with the clarification or needs more info
-                    if any(phrase in agent_response.lower() for phrase in [
-                        "clarification received", "understood", "updated", "confirmed",
-                        "that's sufficient", "got it", "thank you", "perfect"
+                    # Check if the agent seems satisfied or needs more info
+                    response_lower = agent_response.lower()
+                    if any(phrase in response_lower for phrase in [
+                        "thank you", "got it", "understood", "that clarifies",
+                        "i think that's sufficient", "clear now", "that helps"
                     ]):
-                        print(f"\n✅ Clarification for {story_id} completed!")
+                        # Agent seems satisfied, ask if they want to update the story
+                        update_choice = input(f"\n🤖 Should I update user story {story_id} based on this clarification? (yes/no): ").strip().lower()
+                        if update_choice in ['yes', 'y']:
+                            # Now use the tool to update
+                            update_prompt = f"""Based on the clarification conversation above for user story {story_id}, please update the user story with the new information. Use the update_user_story tool to make the appropriate changes."""
+                            print("\n🤖 Updating user story...")
+                            async for update in agent.agent.run_stream(update_prompt):
+                                if update.text:
+                                    print(update.text, end="", flush=True)
+                            print()
                         conversation_complete = True
-                    elif any(phrase in agent_response.lower() for phrase in [
-                        "need more", "could you", "please clarify", "additional info",
-                        "more details", "specify", "what do you mean"
+                    elif any(phrase in response_lower for phrase in [
+                        "could you", "can you", "what about", "tell me",
+                        "please clarify", "need more", "additional info"
                     ]):
-                        print(f"\n🔄 Agent needs more information for {story_id}...")
-                        # Continue the conversation loop
+                        # Agent is asking another question, continue conversation
+                        print(f"\n🔄 Continuing conversation for {story_id}...")
                     else:
-                        # Assume clarification is complete if not clearly asking for more
-                        print(f"\n✅ Moving to next clarification...")
-                        conversation_complete = True
+                        # Ask user if they want to continue or complete this clarification
+                        continue_choice = input(f"\n🤖 Continue conversation for {story_id}, or complete this clarification? (continue/complete): ").strip().lower()
+                        if continue_choice not in ['continue', 'c']:
+                            conversation_complete = True
 
             # After all clarifications are addressed, offer to review updated stories
             print("\n" + "="*80)
