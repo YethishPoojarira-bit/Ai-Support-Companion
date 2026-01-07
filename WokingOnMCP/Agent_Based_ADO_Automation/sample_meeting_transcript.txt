@@ -1,0 +1,56 @@
+Meeting Transcript - Q1 2026 Product Planning
+
+Date: January 6, 2026
+Attendees: Product Manager, Engineering Lead, UX Designer, Business Analyst
+
+---
+
+Product Manager: Let's discuss the new features for our customer portal. First priority is authentication improvements.
+
+Engineering Lead: Right, we need multi-factor authentication. Users should be able to enable MFA in their account settings. We should support both SMS and authenticator apps.
+
+UX Designer: For the MFA setup, we need to provide backup codes that users can download or print. The flow should be simple - maybe a 3-step wizard?
+
+Business Analyst: Got it. So users must be able to enable/disable MFA, receive codes via SMS or app, and get backup codes during setup. Should we require MFA for all users or make it optional?
+
+Product Manager: Let's make it optional for now, but admins should be able to enforce it for their organization.
+
+---
+
+Product Manager: Next item - the dashboard redesign. Users have been complaining about information overload.
+
+UX Designer: I propose a customizable dashboard where users can add, remove, and rearrange widgets. Each widget shows specific metrics - sales, customer activity, support tickets, etc.
+
+Engineering Lead: We'll need a drag-and-drop interface. Users should be able to save multiple dashboard layouts and switch between them.
+
+Business Analyst: So we need widgets for key metrics, drag-and-drop functionality, ability to save layouts, and maybe share layouts with team members?
+
+UX Designer: Yes, and let's add a "reset to default" option in case users mess up their layout.
+
+---
+
+Engineering Lead: We also discussed API rate limiting in the last sprint review. Right now we have no limits and some clients are hammering our endpoints.
+
+Product Manager: We should implement tiered rate limits based on subscription level. Free tier gets 1000 requests per hour, Pro gets 10,000, and Enterprise gets custom limits.
+
+Business Analyst: Users need to see their current usage and remaining quota. Should we send notifications when they hit 80% of their limit?
+
+Engineering Lead: Good idea. And we should return proper HTTP 429 responses with Retry-After headers when limits are exceeded.
+
+---
+
+UX Designer: One more thing - users have been asking for dark mode support for months.
+
+Product Manager: Yes, this should be straightforward. Let's add it.
+
+Engineering Lead: We need system-wide dark mode with an easy toggle in the user settings. It should remember the user's preference across sessions.
+
+UX Designer: All components need dark mode variants - buttons, forms, tables, modals. Let's also support automatic switching based on system preferences.
+
+Business Analyst: I'll document that. So: manual toggle, auto-detect system preference, persistent across sessions, and full component coverage.
+
+---
+
+Product Manager: Great session everyone. Let's prioritize MFA as high, dashboard customization as high, rate limiting as medium, and dark mode as medium. I'll need detailed user stories by end of week.
+
+Meeting adjourned.

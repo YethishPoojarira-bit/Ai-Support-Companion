@@ -33,6 +33,7 @@ def ado_auth():
     from requests.auth import HTTPBasicAuth
     return HTTPBasicAuth("", ADO_PAT)
 
+
 def create_work_item_ado(project: str, work_item_type: str, fields: list):
     """
     Create a work item using the ADO REST API.
@@ -50,6 +51,7 @@ def create_work_item_ado(project: str, work_item_type: str, fields: list):
     except Exception as e:
         return {"error": str(e), "status_code": getattr(e, "response", None) and e.response.status_code}
 
+
 def get_work_item_ado(work_item_id: int, expand: str = "all"):
     url = f"{ADO_ORG_URL}/_apis/wit/workitems/{work_item_id}?api-version={API_VERSION}&$expand={expand}"
     try:
@@ -58,6 +60,7 @@ def get_work_item_ado(work_item_id: int, expand: str = "all"):
         return resp.json()
     except Exception as e:
         return {"error": str(e), "status_code": getattr(e, "response", None) and e.response.status_code}
+
 
 # MCP tools
 @mcp.tool()
@@ -104,6 +107,7 @@ def create_work_item(project: str = DEFAULT_PROJECT, work_item_type: str = "Task
 
     return result
 
+
 @mcp.tool()
 def get_work_item(work_item_id: int):
     """Get ADO work item by id."""
@@ -112,6 +116,7 @@ def get_work_item(work_item_id: int):
     except Exception:
         return {"error": "work_item_id must be an integer"}
     return get_work_item_ado(wid)
+
 
 @mcp.tool()
 def create_user_story(project: str = DEFAULT_PROJECT, title: str = "", description: str = "", assigned_to: str = ""):
@@ -125,6 +130,7 @@ def create_user_story(project: str = DEFAULT_PROJECT, title: str = "", descripti
         if isinstance(res, dict) and res.get("id"):
             return res
     return {"error": "Failed to create User Story. Check work_item_type names for your process template.", "last_response": res}
+
 
 @mcp.tool()
 def list_recent_created(limit: int = 20):
@@ -143,6 +149,7 @@ def list_recent_created(limit: int = 20):
     except Exception as e:
         return {"error": str(e)}
 
+
 @mcp.tool()
 def health_check():
     """Quick ADO auth check by calling the projects API."""
@@ -156,6 +163,7 @@ def health_check():
             return {"ok": False, "status_code": resp.status_code, "text": resp.text}
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
 
 @mcp.tool()
 def list_team_members(project: str = DEFAULT_PROJECT):
@@ -222,6 +230,7 @@ def list_team_members(project: str = DEFAULT_PROJECT):
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+
 @mcp.tool()
 def assign_work_item(work_item_id: int, person_name: str):
     """
@@ -283,6 +292,7 @@ def assign_work_item(work_item_id: int, person_name: str):
             
     except Exception as e:
         return {"ok": False, "error": str(e)}
+
 
 @mcp.tool()
 def list_user_stories(project: str = DEFAULT_PROJECT, state: str = "", limit: int = 50):
@@ -397,13 +407,14 @@ def list_user_stories(project: str = DEFAULT_PROJECT, state: str = "", limit: in
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
+
 # Run the server
 if __name__ == "__main__":
     print("🚀 Starting ADO Issue Creator MCP Server...")
     if not ADO_ORG_URL or not ADO_PAT or not DEFAULT_PROJECT:
         print("⚠️ Missing ADO configuration in environment; server will still start but ADO calls will fail.")
     try:
-        mcp.run(transport="streamable-http")
+        mcp.run(transport="stdio")
     except KeyboardInterrupt:
         print("\n🛑 Server stopping...")
         print("👋 Goodbye.")
