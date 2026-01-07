@@ -3,8 +3,8 @@ User Story Extraction Agent using Microsoft Agent Framework
 Extracts user stories from meeting transcripts with human-in-the-loop verification.
 """
 import asyncio
-import os
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -36,7 +36,6 @@ class UserStory(BaseModel):
 class ExtractionResponse(BaseModel):
     """Model for the complete extraction response."""
     user_stories: List[UserStory]
-    summary: str
     questions: List[str] = []
 
 
@@ -86,7 +85,14 @@ class UserStoryTools:
             json.dump(output_data, f, indent=2, ensure_ascii=False)
         
         approval_status = "✅ APPROVED" if approved else "💾 NOT APPROVED"
-        return f"{approval_status} - User stories saved to: {output_path}\n\nTotal stories: {len(self.agent.extracted_stories.get('user_stories', []))}"
+        result = f"{approval_status} - User stories saved to: {output_path}\n\nTotal stories: {len(self.agent.extracted_stories.get('user_stories', []))}"
+        
+        # Signal to exit if approved
+        if approved:
+            result += "\n\n👋 Session complete. Program will exit."
+            self.agent.should_exit = True
+        
+        return result
     
     @ai_function(name="update_user_story", description="Updates a specific user story by ID with new information")
     def update_story(
@@ -118,6 +124,7 @@ class UserStoryTools:
             available_ids = [s.get("id") for s in self.agent.extracted_stories["user_stories"]]
             return f"❌ Error: Story '{story_id}' not found. Available IDs: {', '.join(available_ids)}"
     
+
     @ai_function(name="remove_user_story", description="Removes a user story from the list by its ID")
     def remove_story(
         self,
@@ -144,6 +151,7 @@ class UserStoryTools:
         
         return f"✅ Removed user story: {story_id}\n\nRemaining stories: {final_count}\n\n🗑️ Removed story details:\n{json.dumps(removed_story, indent=2) if removed_story else 'N/A'}"
     
+
     @ai_function(name="add_user_story", description="Adds a new user story to the current list")
     def add_story(
         self,
@@ -183,6 +191,7 @@ class UserStoryTools:
         total_stories = len(self.agent.extracted_stories["user_stories"])
         return f"✅ Added new user story: {new_id}\n\nTotal stories: {total_stories}\n\n📋 New story details:\n{json.dumps(new_story, indent=2)}"
     
+
     @ai_function(name="list_all_stories", description="Lists all current user stories with their IDs and titles")
     def list_stories(self) -> str:
         """List all current user stories."""
@@ -203,6 +212,7 @@ class UserStoryTools:
         
         return output
     
+    
     @ai_function(name="get_story_details", description="Gets detailed information about a specific user story by ID")
     def get_story_details(
         self,
@@ -218,6 +228,28 @@ class UserStoryTools:
         
         available_ids = [s.get("id") for s in self.agent.extracted_stories["user_stories"]]
         return f"❌ Error: Story '{story_id}' not found. Available IDs: {', '.join(available_ids)}"
+    
+
+    @ai_function(name="clarification_decision", description="Agent declares whether clarification is complete and what should happen next")
+    def clarification_decision(
+        self,
+        story_id: Annotated[str, Field(description="The ID of the user story being clarified (e.g., 'US-001')")],
+        status: Annotated[str, Field(description="Decision status: 'needs_more_info', 'ready_to_update', or 'no_update_needed'")],
+        summary: Annotated[str, Field(description="Brief summary of the clarification discussion and current understanding")],
+        proposed_changes: Annotated[Optional[Dict], Field(description="Proposed changes to the user story if status is 'ready_to_update'. Should be a dict with fields to update.")] = None,
+        follow_up_question: Annotated[Optional[str], Field(description="If status is 'needs_more_info', the specific follow-up question to ask the user")] = None
+    ) -> Dict:
+        """
+        Agent declares whether clarification is complete and what should happen next.
+        This is a decision checkpoint - it does not mutate the story.
+        """
+        return {
+            "story_id": story_id,
+            "status": status,
+            "summary": summary,
+            "proposed_changes": proposed_changes,
+            "follow_up_question": follow_up_question
+        }
 
 
 class UserStoryExtractionAgent:
@@ -275,18 +307,10 @@ Your responsibilities:
   "questions": ["Overall questions about the document"]
 }
 
-AVAILABLE TOOLS:
-You have access to the following tools to help manage user stories during conversation:
-- save_user_stories: Save the current stories to a JSON file (use when user approves or requests to save)
-- update_user_story: Update specific fields of a user story (use when user requests changes)
-- remove_user_story: Remove a user story from the list (use when user wants to delete a story)
-- add_user_story: Add a new user story to the list (use when user provides new requirements)
-- list_all_stories: Show all current user stories with IDs and titles
-- get_story_details: Get detailed information about a specific user story
 
 CONVERSATION FLOW:
 1. After extracting user stories, engage in conversation with the user
-2. Ask clarifying questions about unclear requirements
+2. For clarification questions, use the clarification_decision tool to declare completion status
 3. When user approves stories, use save_user_stories with approved=True
 4. Always confirm actions before using tools
 5. Be conversational and helpful
@@ -301,10 +325,8 @@ CRITICAL RULE:
 
 
 IMPORTANT: 
-- Return ONLY valid JSON matching the schema.
 - Be thorough but don't invent requirements
 - Flag ambiguities and ask for clarification
-- Maintain traceability to source text
 - If confidence is Low, explain why
 - Use tools to make changes when the user requests them
 - Always show the user which tool you are using and what changed.
@@ -316,13 +338,28 @@ IMPORTANT:
                 self.tools.remove_story,
                 self.tools.add_story,
                 self.tools.list_stories,
-                self.tools.get_story_details
+                self.tools.get_story_details,
+                self.tools.clarification_decision
             ]
         )
 
         self.conversation_history = []
         self.extracted_stories = None
         self.approved = False
+        self.should_exit = False
+    
+    def clear_screen(self):
+        """Clear the terminal screen."""
+        os.system('cls' if os.name == 'nt' else 'clear')
+    
+    def print_header(self, title: str, subtitle: str = ""):
+        """Print a clean header."""
+        self.clear_screen()
+        print(f"\n{'='*60}")
+        print(f"🤖 {title}")
+        if subtitle:
+            print(f"   {subtitle}")
+        print(f"{'='*60}\n")
     
     def read_document(self, file_path: str) -> str:
         """Read content from .txt or .docx file."""
@@ -344,7 +381,6 @@ IMPORTANT:
         else:
             raise ValueError(f"Unsupported file type: {file_ext}. Use .txt or .docx")
     
-
     async def extract_user_stories(self, document_content: str, file_name: str = "document") -> dict:
         """
         Extract user stories from document using the agent.
@@ -413,8 +449,7 @@ Return ONLY valid JSON matching the schema. Be thorough.
                 "error": error_msg,
                 "raw_response": str(e)
             }
-    
-    
+       
     async def ask_clarification(self, question: str) -> str:
         """
         Ask the agent a clarification question.
@@ -434,8 +469,7 @@ Return ONLY valid JSON matching the schema. Be thorough.
         
         print(f"🤖 Agent: {response}\n")
         return response
-    
-    
+       
     async def refine_story(self, story_id: str, refinement_request: str) -> dict:
         """
         Refine a specific user story based on user feedback.
@@ -480,119 +514,80 @@ Return ONLY the updated user story in JSON format with the same schema."""
         except Exception as e:
             return {"error": f"Validation or parse error: {str(e)}", "raw_response": response_text}
     
-
     def display_stories(self, stories_data: dict):
         """
-        Display extracted user stories in a beautiful, consistent format.
+        Display extracted user stories in a clean, professional format.
         
         Args:
             stories_data: Dictionary containing user stories and metadata
         """
         if "error" in stories_data:
-            print(f"\n{'='*80}")
-            print(f"❌ EXTRACTION ERROR")
-            print(f"{'='*80}")
-            print(f"\n{stories_data['error']}\n")
+            print(f"\n❌ EXTRACTION ERROR")
+            print(f"{'─'*50}")
+            print(f"{stories_data['error']}")
             if "raw_response" in stories_data:
-                print(f"Raw response (first 500 chars):")
-                print(f"{'-'*80}")
-                print(f"{stories_data['raw_response'][:500]}...")
-                print(f"{'-'*80}\n")
+                print(f"\n📄 Raw Response (first 300 chars):")
+                print(f"{stories_data['raw_response'][:300]}...")
             return
         
         user_stories = stories_data.get("user_stories", [])
         
-        # Header
-        print(f"\n{'='*80}")
-        print(f"📋 EXTRACTED USER STORIES")
-        print(f"{'='*80}")
-        print(f"Total Stories: {len(user_stories)}")
-        print(f"{'='*80}\n")
+        print(f"\n📋 USER STORIES ({len(user_stories)} total)")
+        print(f"{'─'*50}")
         
         # Individual stories
         for idx, story in enumerate(user_stories, 1):
             story_id = story.get('id', 'N/A')
             title = story.get('title', 'Untitled')
-            priority = story.get('priority', 'Not set')
-            confidence = story.get('confidence', 'Not specified')
-            description = story.get('description', 'No description provided')
+            priority = story.get('priority', 'Medium')
+            confidence = story.get('confidence', 'Medium')
+            description = story.get('description', 'No description')
             
-            # Story header with ID and title
-            print(f"┌{'─'*78}┐")
-            print(f"│ {idx}. {story_id}: {title[:60]}{' '*(60-len(title[:60]))} │")
-            print(f"├{'─'*78}┤")
+            # Priority and confidence indicators
+            priority_icon = {'High': '🔴', 'Medium': '🟡', 'Low': '🟢'}.get(priority, '⚪')
+            confidence_icon = {'High': '💯', 'Medium': '🎯', 'Low': '❓'}.get(confidence, '❔')
             
-            # Priority and confidence badges
-            priority_badge = self._format_badge(priority, 'priority')
-            confidence_badge = self._format_badge(confidence, 'confidence')
-            print(f"│ {priority_badge}  {confidence_badge}{' '*(78-len(priority_badge)-len(confidence_badge)-3)}│")
-            print(f"├{'─'*78}┤")
-            
-            # Description
-            print(f"│ 📝 DESCRIPTION:{' '*63}│")
-            desc_lines = self._wrap_text(description, 74)
-            for line in desc_lines:
-                print(f"│ {line}{' '*(76-len(line))}│")
+            print(f"\n{idx}. {story_id}: {title}")
+            print(f"   {priority_icon} Priority: {priority} | {confidence_icon} Confidence: {confidence}")
+            print(f"   📝 {description}")
             
             # Acceptance Criteria
             criteria = story.get('acceptance_criteria', [])
             if criteria:
-                print(f"├{'─'*78}┤")
-                print(f"│ ✅ ACCEPTANCE CRITERIA:{' '*54}│")
+                print(f"   ✅ Acceptance Criteria:")
                 for ac_idx, criterion in enumerate(criteria, 1):
-                    criterion_text = f"{ac_idx}. {criterion}"
-                    criterion_lines = self._wrap_text(criterion_text, 74)
-                    for line in criterion_lines:
-                        print(f"│ {line}{' '*(76-len(line))}│")
+                    print(f"      {ac_idx}. {criterion}")
             
             # Notes
             notes = story.get('notes', '').strip()
             if notes:
-                print(f"├{'─'*78}┤")
-                print(f"│ 📌 NOTES:{' '*66}│")
-                notes_lines = self._wrap_text(notes, 74)
-                for line in notes_lines:
-                    print(f"│ {line}{' '*(76-len(line))}│")
+                print(f"   📌 Notes: {notes}")
             
             # Clarifications needed
             clarifications = story.get('clarifications_needed', [])
             if clarifications:
-                print(f"├{'─'*78}┤")
-                print(f"│ ⚠️  CLARIFICATIONS NEEDED:{' '*52}│")
+                print(f"   ⚠️  Needs Clarification:")
                 for clarification in clarifications:
-                    clarif_lines = self._wrap_text(f"• {clarification}", 74)
-                    for line in clarif_lines:
-                        print(f"│ {line}{' '*(76-len(line))}│")
+                    print(f"      • {clarification}")
             
-            print(f"└{'─'*78}┘\n")
+            print()  # Empty line between stories
         
         # Summary section
         summary = stories_data.get('summary', '').strip()
         if summary:
-            print(f"{'─'*80}")
-            print(f"📝 OVERALL SUMMARY")
-            print(f"{'─'*80}")
-            summary_lines = self._wrap_text(summary, 78)
-            for line in summary_lines:
-                print(line)
-            print(f"{'─'*80}\n")
+            print(f"📝 SUMMARY")
+            print(f"{'─'*50}")
+            print(f"{summary}\n")
         
         # Questions section
         questions = stories_data.get('questions', [])
         if questions:
-            print(f"{'─'*80}")
             print(f"❓ OUTSTANDING QUESTIONS")
-            print(f"{'─'*80}")
+            print(f"{'─'*50}")
             for q_idx, question in enumerate(questions, 1):
                 print(f"{q_idx}. {question}")
-            print(f"{'─'*80}\n")
-        
-        # Footer
-        print(f"{'='*80}")
-        print(f"✨ End of User Stories Report")
-        print(f"{'='*80}\n")
+            print()
     
-
     def _format_badge(self, value: str, badge_type: str) -> str:
         """
         Format a badge for priority or confidence.
@@ -614,7 +609,6 @@ Return ONLY the updated user story in JSON format with the same schema."""
             return f"{emoji} Confidence: {value}"
         return value
     
-
     def _wrap_text(self, text: str, width: int) -> list:
         """
         Wrap text to specified width, preserving word boundaries.
@@ -646,7 +640,6 @@ Return ONLY the updated user story in JSON format with the same schema."""
         
         return lines if lines else [""]
     
-
     def save_stories(self, file_name: str = None) -> Path:
         """
         Save extracted and approved user stories to JSON file.
@@ -684,7 +677,6 @@ Return ONLY the updated user story in JSON format with the same schema."""
         print(f"✅ User stories saved to: {output_path}")
         return output_path
 
-
 async def conversational_mode(file_path: str):
     """
     Conversational workflow where the agent uses tools to manage user stories.
@@ -701,6 +693,7 @@ async def conversational_mode(file_path: str):
         content = agent.read_document(file_path)
         
         # Extract user stories
+        print(f"\n🤖 Analyzing document...")
         stories_data = await agent.extract_user_stories(content, Path(file_path).name)
         
         # Display extracted stories
@@ -708,10 +701,10 @@ async def conversational_mode(file_path: str):
         
         # Check for errors
         if "error" in stories_data:
-            print("\n❌ Extraction failed. Please review the raw response above.")
+            print("\n❌ Extraction failed. Please review the error above.")
             return
         
-        # Proactive clarification phase - traverse through all clarifications_needed
+        # Proactive clarification phase
         all_clarifications = []
         for story in stories_data.get("user_stories", []):
             story_id = story.get("id")
@@ -723,134 +716,138 @@ async def conversational_mode(file_path: str):
                 })
 
         if all_clarifications:
-            print("\n" + "="*80)
-            print("❓ CLARIFICATION PHASE - Agent needs your input on specific user stories")
-            print("="*80)
-            print(f"\nI have {len(all_clarifications)} clarification question(s) to help refine the user stories.")
-            print("Let me ask them one by one...\n")
+            print(f"❓ CLARIFICATION PHASE ({len(all_clarifications)} questions)")
+            print(f"{'─'*50}")
 
             for idx, clarification in enumerate(all_clarifications, 1):
                 story_id = clarification["story_id"]
                 question = clarification["question"]
 
-                print(f"\n{'─'*80}")
-                print(f"Question {idx}/{len(all_clarifications)} for {story_id}:")
-                print(f"🤖 Agent: {question}")
-                print(f"{'─'*80}")
+                print(f"\nQuestion {idx}/{len(all_clarifications)} for {story_id}:")
+                print(f"🤖 {question}")
 
-                # Human-in-the-loop conversation for this specific question
-                conversation_complete = False
-                while not conversation_complete:
-                    user_response = input("\n💬 You: ").strip()
+                # Get user response
+                user_response = input("\n💬 You: ").strip()
 
-                    if not user_response:
-                        print("⚠️  Please provide a response to continue.")
-                        continue
+                if not user_response:
+                    print("⚠️  Please provide a response.")
+                    continue
 
-                    if user_response.lower() in ['skip', 'pass', 'next']:
-                        print("⏭️  Skipping this clarification...")
-                        break
+                if user_response.lower() in ['skip', 'pass', 'next']:
+                    print("⏭️  Skipped")
+                    continue
 
-                    # Send the user's response to the agent for conversational processing
-                    clarification_prompt = f"""Regarding user story {story_id}, I asked: "{question}"
+                # Send to agent for decision
+                print(f"\n🤖 Processing...")
+                clarification_prompt = f"""You are clarifying user story {story_id}.
 
-The user responded: "{user_response}"
+Analyze the user's response and decide what to do.
 
-Please engage in natural conversation about this clarification. You can:
-- Ask follow-up questions if you need more information
-- Discuss the implications of their response
-- Suggest how this affects the user story
-- Ask for confirmation before making changes
+RULES:
+- If the response provides useful information, set status to 'ready_to_update' and propose changes.
+- If more information is needed, set status to 'needs_more_info' and ask a follow-up question.
+- If no changes are needed, set status to 'no_update_needed'.
 
-Do NOT automatically update the user story. Have a conversation first and only use tools when the user explicitly asks you to make changes or when you have enough information to proceed.
+ALWAYS call the clarification_decision tool with your decision.
 
-Keep your response conversational and helpful."""
+Conversation:
+Question: "{question}"
+User response: "{user_response}"
 
-                    print("\n🤖 Agent: ", end="", flush=True)
-                    agent_response = ""
-                    async for update in agent.agent.run_stream(clarification_prompt):
-                        if update.text:
-                            print(update.text, end="", flush=True)
-                            agent_response += update.text
-                    print()
+Call clarification_decision now:"""
 
-                    # Check if the agent seems satisfied or needs more info
-                    response_lower = agent_response.lower()
-                    if any(phrase in response_lower for phrase in [
-                        "thank you", "got it", "understood", "that clarifies",
-                        "i think that's sufficient", "clear now", "that helps"
-                    ]):
-                        # Agent seems satisfied, ask if they want to update the story
-                        update_choice = input(f"\n🤖 Should I update user story {story_id} based on this clarification? (yes/no): ").strip().lower()
-                        if update_choice in ['yes', 'y']:
-                            # Now use the tool to update
-                            update_prompt = f"""Based on the clarification conversation above for user story {story_id}, please update the user story with the new information. Use the update_user_story tool to make the appropriate changes."""
-                            print("\n🤖 Updating user story...")
-                            async for update in agent.agent.run_stream(update_prompt):
-                                if update.text:
-                                    print(update.text, end="", flush=True)
-                            print()
-                        conversation_complete = True
-                    elif any(phrase in response_lower for phrase in [
-                        "could you", "can you", "what about", "tell me",
-                        "please clarify", "need more", "additional info"
-                    ]):
-                        # Agent is asking another question, continue conversation
-                        print(f"\n🔄 Continuing conversation for {story_id}...")
+                # Get agent decision
+                decision = None
+                full_response = ""
+                async for update in agent.agent.run_stream(clarification_prompt):
+                    if update.text:
+                        full_response += update.text
+                    if hasattr(update, 'tool_call') and update.tool_call and update.tool_call.name == "clarification_decision":
+                        decision = update.tool_call.arguments
+
+                # Parse decision if not from tool call
+                if not decision:
+                    try:
+                        parsed = json.loads(full_response.strip())
+                        if isinstance(parsed, dict) and "status" in parsed:
+                            decision = parsed
+                    except:
+                        pass
+
+                if not decision:
+                    print("❌ Agent failed to make decision, skipping...")
+                    continue
+
+                # Handle decision
+                status = decision["status"]
+
+                if status == "needs_more_info":
+                    follow_up = decision.get("follow_up_question", "Can you provide more details?")
+                    print(f"🤖 {follow_up}")
+                    continue
+
+                elif status == "ready_to_update":
+                    print(f"✅ Ready to update {story_id}")
+                    print(f"Summary: {decision.get('summary', '')}")
+
+                    confirm = input("Apply changes? (y/n): ").strip().lower()
+                    if confirm == "y":
+                        changes = decision.get("proposed_changes", {})
+                        if changes:
+                            for field, value in changes.items():
+                                update_prompt = f"Update {story_id} field '{field}' to: {value}"
+                                await agent.agent.run(update_prompt)
+                        print(f"✅ Updated {story_id}")
                     else:
-                        # Ask user if they want to continue or complete this clarification
-                        continue_choice = input(f"\n🤖 Continue conversation for {story_id}, or complete this clarification? (continue/complete): ").strip().lower()
-                        if continue_choice not in ['continue', 'c']:
-                            conversation_complete = True
+                        print("❌ Skipped update")
 
-            # After all clarifications are addressed, offer to review updated stories
-            print("\n" + "="*80)
-            print("✅ All clarification questions addressed!")
-            print("="*80)
+                elif status == "no_update_needed":
+                    print(f"✅ No update needed for {story_id}")
+                    print(f"Summary: {decision.get('summary', '')}")
 
-            review_choice = input("\n📋 Would you like to review the updated user stories? (yes/no): ").strip().lower()
-            if review_choice in ['yes', 'y']:
-                print("\n🔄 Displaying updated user stories...\n")
+                else:
+                    print(f"❌ Unknown status: {status}")
+
+            # After all clarifications
+            print(f"\n✅ All clarifications completed!")
+
+            review = input("\n📋 Review updated stories? (y/n): ").strip().lower()
+            if review == "y":
                 agent.display_stories(agent.extracted_stories)
         
         # Start conversational loop
-        print("\n" + "="*80)
-        print("💬 CONVERSATIONAL MODE - Chat with the agent to refine your user stories")
-        print("="*80)
-        print("\nThe agent can now:")
-        print("  • Answer clarification questions")
-        print("  • Update user stories based on your feedback")
-        print("  • Add new user stories as you discuss requirements")
-        print("  • Remove stories that aren't needed")
-        print("  • Save the final user stories when you approve them")
-        print("\nJust chat naturally! Type 'exit' or 'quit' to end the conversation.\n")
+        print(f"\n💬 CONVERSATIONAL MODE")
+        print(f"{'─'*50}")
+        print(f"Commands: update, add, remove, list, save, exit")
+        print(f"Type naturally or use commands.\n")
         
-        # Initialize conversational context with extracted stories
-        context_prompt = f"""I have extracted the following user stories from the document. These are now in my memory and I can help you refine them:
+        # Initialize context
+        context_prompt = f"""User stories in memory: {len(agent.extracted_stories.get('user_stories', []))} total.
 
-{json.dumps(agent.extracted_stories, indent=2)}
-
-I'm ready to help you refine these user stories. You can ask me questions, request updates, or discuss any aspects of the requirements. What would you like to do?"""
-        
-        # Send context to agent (silently, to establish context)
+Help the user refine these stories. Use tools when they request changes."""
         await agent.agent.run(context_prompt)
         
         while True:
-            user_input = input("\n💬 You: ").strip()
+            user_input = input("💬 You: ").strip()
             
             if not user_input:
                 continue
             
             if user_input.lower() in ['exit', 'quit', 'bye']:
-                print("\n👋 Ending conversation. Goodbye!")
+                print("\n👋 Goodbye!")
                 break
             
-            # Send message to agent (agent will use tools as needed)
-            print("\n🤖 Agent: ", end="", flush=True)
+            # Send to agent
+            print(f"🤖 ", end="")
             async for update in agent.agent.run_stream(user_input):
                 if update.text:
-                    print(update.text, end="", flush=True)
-            print()  # New line after streaming is complete
+                    print(update.text, end="")
+            print()
+            
+            # Check if agent signaled to exit (after approved save)
+            if agent.should_exit:
+                print("\n✨ Thank you for using the User Story Extraction Agent!")
+                break
     
     except Exception as e:
         print(f"\n❌ Error: {str(e)}")
@@ -860,22 +857,20 @@ I'm ready to help you refine these user stories. You can ask me questions, reque
 
 async def main():
     """Main entry point."""
-    print("\n" + "="*80)
-    print("🤖 USER STORY EXTRACTION AGENT")
-    print("   Microsoft Agent Framework with Function Tools")
-    print("="*80)
+    agent = UserStoryExtractionAgent()
+    agent.print_header("USER STORY EXTRACTION AGENT", "Microsoft Agent Framework with Function Tools")
     
     # Get file path from user
-    file_path = input("\n📂 Enter path to document (.txt or .docx): ").strip()
+    file_path = input("📂 Document path (.txt or .docx): ").strip()
     
     if not file_path:
-        print("❌ No file path provided. Exiting.")
+        print("❌ No file path provided.")
         return
     
     # Remove quotes if user copied path with quotes
     file_path = file_path.strip('"').strip("'")
     
-    # Start conversational mode directly
+    # Start conversational mode
     await conversational_mode(file_path)
 
 
