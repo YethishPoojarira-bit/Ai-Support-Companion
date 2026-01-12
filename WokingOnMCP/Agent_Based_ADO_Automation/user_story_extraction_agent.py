@@ -123,8 +123,7 @@ class UserStoryTools:
         if not story_found:
             available_ids = [s.get("id") for s in self.agent.extracted_stories["user_stories"]]
             return f"❌ Error: Story '{story_id}' not found. Available IDs: {', '.join(available_ids)}"
-    
-
+      
     @ai_function(name="remove_user_story", description="Removes a user story from the list by its ID")
     def remove_story(
         self,
@@ -151,7 +150,6 @@ class UserStoryTools:
         
         return f"✅ Removed user story: {story_id}\n\nRemaining stories: {final_count}\n\n🗑️ Removed story details:\n{json.dumps(removed_story, indent=2) if removed_story else 'N/A'}"
     
-
     @ai_function(name="add_user_story", description="Adds a new user story to the current list")
     def add_story(
         self,
@@ -191,7 +189,6 @@ class UserStoryTools:
         total_stories = len(self.agent.extracted_stories["user_stories"])
         return f"✅ Added new user story: {new_id}\n\nTotal stories: {total_stories}\n\n📋 New story details:\n{json.dumps(new_story, indent=2)}"
     
-
     @ai_function(name="list_all_stories", description="Lists all current user stories with their IDs and titles")
     def list_stories(self) -> str:
         """List all current user stories."""
@@ -211,8 +208,7 @@ class UserStoryTools:
             output += f"🎯 {story_id}: {title}\n   Priority: {priority} | Confidence: {confidence}\n\n"
         
         return output
-    
-    
+     
     @ai_function(name="get_story_details", description="Gets detailed information about a specific user story by ID")
     def get_story_details(
         self,
@@ -229,7 +225,6 @@ class UserStoryTools:
         available_ids = [s.get("id") for s in self.agent.extracted_stories["user_stories"]]
         return f"❌ Error: Story '{story_id}' not found. Available IDs: {', '.join(available_ids)}"
     
-
     @ai_function(name="clarification_decision", description="Agent declares whether clarification is complete and what should happen next")
     def clarification_decision(
         self,

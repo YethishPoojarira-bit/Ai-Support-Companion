@@ -71,6 +71,7 @@ def create_work_item(project: str = DEFAULT_PROJECT, work_item_type: str = "Task
     - title: short title
     - description: HTML or plain text description
     - assigned_to: email or display name
+    - don't include html tags in description; use plain text
     """
     if not title:
         return {"error": "Title is required"}
@@ -414,7 +415,7 @@ if __name__ == "__main__":
     if not ADO_ORG_URL or not ADO_PAT or not DEFAULT_PROJECT:
         print("⚠️ Missing ADO configuration in environment; server will still start but ADO calls will fail.")
     try:
-        mcp.run(transport="stdio")
+        mcp.run(transport="sse")
     except KeyboardInterrupt:
         print("\n🛑 Server stopping...")
         print("👋 Goodbye.")
