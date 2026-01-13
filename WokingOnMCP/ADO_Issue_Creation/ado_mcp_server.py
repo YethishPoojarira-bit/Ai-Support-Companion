@@ -415,7 +415,8 @@ if __name__ == "__main__":
     if not ADO_ORG_URL or not ADO_PAT or not DEFAULT_PROJECT:
         print("⚠️ Missing ADO configuration in environment; server will still start but ADO calls will fail.")
     try:
-        mcp.run(transport="sse")
+        # mcp.run(transport="sse")
+        mcp.run(transport="streamable-http")
     except KeyboardInterrupt:
         print("\n🛑 Server stopping...")
         print("👋 Goodbye.")

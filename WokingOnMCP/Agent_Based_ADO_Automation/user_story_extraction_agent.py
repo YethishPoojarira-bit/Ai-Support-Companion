@@ -266,7 +266,6 @@ class UserStoryExtractionAgent:
         # Create the agent with detailed instructions and tools
         self.agent = client.create_agent(
             name="UserStoryExtractor",
-            response_model=ExtractionResponse,
             instructions="""You are an expert Business Analyst specializing in extracting and structuring user stories from meeting transcripts and documents.
         
 Your responsibilities:
@@ -327,6 +326,31 @@ IMPORTANT:
 - Always show the user which tool you are using and what changed.
 - Always show the user what changed after using a tool
 """,
+            tools=[
+                self.tools.save_stories,
+                self.tools.update_story,
+                self.tools.remove_story,
+                self.tools.add_story,
+                self.tools.list_stories,
+                self.tools.get_story_details,
+                self.tools.clarification_decision
+            ]
+        )
+
+        # Create a separate conversational agent without response_model for tool interactions
+        self.conversational_agent = client.create_agent(
+            name="UserStoryConversational",
+            instructions="""You are a helpful assistant for managing user stories. When users ask to save, update, add, remove, or list user stories, you MUST use the appropriate tools. Do not respond with text descriptions - call the tools directly.
+
+Commands you should recognize:
+- "save" -> call save_user_stories tool
+- "update [story_id]" -> call update_user_story tool  
+- "add story" -> call add_user_story tool
+- "remove [story_id]" -> call remove_user_story tool
+- "list" -> call list_all_stories tool
+- "show [story_id]" -> call get_story_details tool
+
+Always call tools when users request these actions. Never describe what you would do - just do it by calling the tool.""",
             tools=[
                 self.tools.save_stories,
                 self.tools.update_story,
@@ -672,6 +696,7 @@ Return ONLY the updated user story in JSON format with the same schema."""
         print(f"✅ User stories saved to: {output_path}")
         return output_path
 
+
 async def conversational_mode(file_path: str):
     """
     Conversational workflow where the agent uses tools to manage user stories.
@@ -754,7 +779,7 @@ Call clarification_decision now:"""
                 # Get agent decision
                 decision = None
                 full_response = ""
-                async for update in agent.agent.run_stream(clarification_prompt):
+                async for update in agent.conversational_agent.run_stream(clarification_prompt):
                     if update.text:
                         full_response += update.text
                     if hasattr(update, 'tool_call') and update.tool_call and update.tool_call.name == "clarification_decision":
@@ -820,7 +845,7 @@ Call clarification_decision now:"""
         context_prompt = f"""User stories in memory: {len(agent.extracted_stories.get('user_stories', []))} total.
 
 Help the user refine these stories. Use tools when they request changes."""
-        await agent.agent.run(context_prompt)
+        await agent.conversational_agent.run(context_prompt)
         
         while True:
             user_input = input("💬 You: ").strip()
@@ -832,11 +857,51 @@ Help the user refine these stories. Use tools when they request changes."""
                 print("\n👋 Goodbye!")
                 break
             
-            # Send to agent
+            # Send to conversational agent (which will use tools)
             print(f"🤖 ", end="")
-            async for update in agent.agent.run_stream(user_input):
+            async for update in agent.conversational_agent.run_stream(user_input):
                 if update.text:
                     print(update.text, end="")
+                # Handle tool calls
+                if hasattr(update, 'tool_call') and update.tool_call:
+                    tool_name = update.tool_call.name
+                    tool_args = update.tool_call.arguments
+                    print(f"\n🔧 Calling tool: {tool_name}")
+                    
+                    # Execute the tool based on name
+                    if tool_name == "save_user_stories":
+                        approved = tool_args.get("approved", False)
+                        filename = tool_args.get("filename")
+                        result = agent.tools.save_stories(approved=approved, filename=filename)
+                        print(f"📄 {result}")
+                    elif tool_name == "update_user_story":
+                        story_id = tool_args.get("story_id")
+                        field = tool_args.get("field")
+                        new_value = tool_args.get("new_value")
+                        result = agent.tools.update_story(story_id=story_id, field=field, new_value=new_value)
+                        print(f"✏️ {result}")
+                    elif tool_name == "remove_user_story":
+                        story_id = tool_args.get("story_id")
+                        result = agent.tools.remove_story(story_id=story_id)
+                        print(f"🗑️ {result}")
+                    elif tool_name == "add_user_story":
+                        title = tool_args.get("title")
+                        description = tool_args.get("description")
+                        priority = tool_args.get("priority", "Medium")
+                        acceptance_criteria = tool_args.get("acceptance_criteria", "")
+                        notes = tool_args.get("notes", "")
+                        result = agent.tools.add_story(
+                            title=title, description=description, priority=priority,
+                            acceptance_criteria=acceptance_criteria, notes=notes
+                        )
+                        print(f"➕ {result}")
+                    elif tool_name == "list_all_stories":
+                        result = agent.tools.list_stories()
+                        print(f"\n{result}")
+                    elif tool_name == "get_story_details":
+                        story_id = tool_args.get("story_id")
+                        result = agent.tools.get_story_details(story_id=story_id)
+                        print(f"\n{result}")
             print()
             
             # Check if agent signaled to exit (after approved save)
