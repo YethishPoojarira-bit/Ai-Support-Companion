@@ -321,33 +321,6 @@ WHERE [System.Parent] = 1234
 ORDER BY [System.Id]
 ```
 
-REST example (how the server sends WIQL):
-
-```http
-POST https://dev.azure.com/{organization}/{project}/_apis/wit/wiql?api-version=7.0
-Content-Type: application/json
-Authorization: Basic <base64(:PAT)>
-
-{ "query": "SELECT [System.Id] FROM WorkItems WHERE [System.TeamProject] = '{project}' AND [System.WorkItemType] = 'User Story' ORDER BY [System.Id] DESC" }
-```
-
-Then the batch GET:
-
-```http
-GET https://dev.azure.com/{organization}/_apis/wit/workitems?ids=123,456,789&api-version=7.0
-```
-
-Practical tips & gotchas:
-- WIQL returns references only (IDs); always do a batch GET for fields you need.
-- Use macros like `@Me`, `@Today`, and `@Project` for dynamic queries.
-- Avoid extremely large WIQL results — limit or page results before the batch GET. Your server slices results with a `limit` parameter before fetching details.
-- Escape project names and strings when building endpoint URLs; the server uses URL encoding (`quote()`) for project names.
-- Ensure the PAT used by the server has proper permissions to run WIQL and read work items.
-
-Where to look in the code:
-- `list_user_stories` (WIQL + batch fetch): [US_MCP_Server.py](../ADO_MCP_Server/US_MCP_Server.py#L447-L491)
-- `get_child_work_items` (WIQL to find children): [US_MCP_Server.py](../ADO_MCP_Server/US_MCP_Server.py#L641-L655)
-
 
 ## Error Handling
 
