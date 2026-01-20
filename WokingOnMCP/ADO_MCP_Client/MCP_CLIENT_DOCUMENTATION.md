@@ -174,43 +174,6 @@ For each task in a user story:
 - Uses HTML formatting for readability
 - Calls `update_work_item` to persist changes
 
-## Azure DevOps Integration Details
-
-### Authentication
-- Server uses Personal Access Token (PAT) from environment variables
-- `AZURE_DEVOPS_PAT`: PAT with work item permissions
-- `AZURE_DEVOPS_ORG_URL`: Organization URL
-- `AZURE_DEVOPS_PROJECT`: Default project name
-
-### API Interactions
-- **Work Item Creation**: Uses JSON Patch operations via `PATCH /_apis/wit/workitems/$type`
-- **Parent-Child Linking**: Uses Relations API with `System.LinkTypes.Hierarchy-Reverse`
-- **Updates**: JSON Patch for field modifications
-- **Error Handling**: Captures HTTP status codes and error messages
-
-### Data Flow
-1. Client → MCP Server (tool call with arguments)
-2. MCP Server → Azure DevOps REST API (authenticated request)
-3. Azure DevOps → MCP Server (response with work item data)
-4. MCP Server → Client (structured JSON response)
-5. Client processes and continues workflow
-
-## Error Handling and Resilience
-
-### Tool Call Errors
-- Checks `result.isError` for failed tool calls
-- Parses error responses from server
-- Continues processing other items on individual failures
-
-### ADO API Errors
-- Handles 400/401/403 status codes
-- Skips problematic fields (e.g., invalid assignees)
-- Logs detailed error information
-
-### Connection Issues
-- Uses async context managers for proper cleanup
-- Times out requests appropriately
-- Provides summary statistics
 
 ## Command Line Interface
 
@@ -233,3 +196,61 @@ python US_MCP_Client.py --push --file <filename.json>
 - Server automatically logs creations to JSONL files
 - Client tracks operations in memory
 - No direct file output from client
+
+## LLM → JSON → Upload Flow (end-to-end)
+
+This section describes the complete flow from extracting user stories with the LLM agent, saving them to a JSON file, and uploading them to Azure DevOps via the MCP client and server.
+
+1) Extraction (LLM → JSON)
+- Where: `user_story_extraction_agent.py` (class `UserStoryTools`).
+- Models: `Task`, `UserStory`, `ExtractionResponse` are defined as Pydantic models at the top of the file.
+- Save step: The `save_stories` tool (`@ai_function(name="save_user_stories")`) writes a timestamped JSON file to `OUTPUT_DIR` (default `./output`). It writes an object with `metadata` plus the extracted data (`user_stories`, `summary`, `questions`, etc.). Example path: `output/user_stories_20260121_120000.json`.
+
+2) Client upload (JSON → MCP Server)
+- CLI: run `python US_MCP_Client.py --push --file <filename.json>` from the `ADO_MCP_Client` folder. The `--file` name is resolved against the `output/` directory.
+- File read: `push_stories_from_file()` loads the JSON file and expects a top-level `user_stories` array.
+- Sequence per story (see `US_MCP_Client.py`):
+    1. Call `create_user_story` with formatted title and description.
+    2. For each task, call `create_work_item` (type `Task`) to create the task work item.
+    3. Link each created task to the user story by calling `add_parent_link` (child_id, parent_id).
+    4. Append task references to the story description and call `update_work_item` to persist the description.
+
+3) Server actions (MCP Server → ADO)
+- Authentication: `US_MCP_Server.py` reads `AZURE_DEVOPS_PAT` and uses `ado_auth()` to authorize all REST calls to ADO.
+- Create mechanics: `create_work_item` builds JSON Patch operations and calls `create_work_item_ado()` which performs `PATCH /_apis/wit/workitems/$type` with `application/json-patch+json`.
+- Parent linking: The server uses the Relations API by PATCHing `/relations/-` to the child work item with `rel: System.LinkTypes.Hierarchy-Reverse` pointing at the parent work item URL. `add_parent_link` does this explicitly when called from the client.
+- Local audit: After creating a work item the server appends a JSON record to `ADO_MCP_Server/output/created_work_items.json` (newline-delimited JSON).
+
+4) Data formats and expectations
+- Extraction JSON: must include `user_stories` array where each story has `id`, `title`, `description`, `acceptance_criteria` (list), and optional `tasks` (list of task objects with `id`, `title`, `description`, `notes`). See example below.
+- MCP tool responses: server returns JSON (tool response text contains JSON); `US_MCP_Client.py` loads `result.content[0].text` via `json.loads()` and expects an `id` field for created items.
+
+5) Example JSON
+```json
+{
+    "metadata": {"extracted_at": "2026-01-21T12:00:00", "approved": true, "total_stories": 1},
+    "user_stories": [
+        {
+            "id": "US-001",
+            "title": "User can log in",
+            "description": "As a user, I want to log in so that I can access my dashboard.",
+            "acceptance_criteria": ["Login accepts username/password", "Shows error on wrong credentials"],
+            "priority": "High",
+            "tasks": [
+                {"id": "T-1", "title": "Create login UI", "description": "Create a responsive login page", "notes": ""}
+            ]
+        }
+    ]
+}
+```
+
+6) Example commands
+Start server (in `ADO_MCP_Server`):
+```bash
+python US_MCP_Server.py
+```
+
+Run client push (in `ADO_MCP_Client`):
+```bash
+python US_MCP_Client.py --push --file user_stories_20260121_120000.json
+```
