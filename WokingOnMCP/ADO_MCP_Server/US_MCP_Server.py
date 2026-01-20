@@ -27,6 +27,17 @@ if not ADO_ORG_URL or not ADO_PAT or not DEFAULT_PROJECT:
 
 mcp = FastMCP("ADO Issue Creator", json_response=True)
 
+def format_acceptance_criteria(criteria: str) -> str:
+    """Format acceptance criteria as HTML list."""
+    if not criteria:
+        return ""
+    lines = [line.strip() for line in criteria.split('\n') if line.strip()]
+    html = "<ul>"
+    for line in lines:
+        html += f"<li>{line}</li>"
+    html += "</ul>"
+    return html
+
 # Helper for ADO requests
 def ado_auth():
     # Use basic auth with empty username and PAT as password
@@ -48,6 +59,9 @@ def create_work_item_ado(project: str, work_item_type: str, fields: list):
         resp = requests.patch(url, json=fields, headers=headers, auth=ado_auth(), timeout=30)
         resp.raise_for_status()
         return resp.json()
+    except requests.exceptions.HTTPError as e:
+        error_details = e.response.text if hasattr(e.response, 'text') else str(e)
+        return {"error": str(e), "status_code": e.response.status_code, "details": error_details}
     except Exception as e:
         return {"error": str(e), "status_code": getattr(e, "response", None) and e.response.status_code}
 
@@ -64,13 +78,15 @@ def get_work_item_ado(work_item_id: int, expand: str = "all"):
 
 # MCP tools
 @mcp.tool()
-def create_work_item(project: str = DEFAULT_PROJECT, work_item_type: str = "Task", title: str = "", description: str = "", assigned_to: str = "", area_path: str = "", iteration_path: str = ""):
+def create_work_item(project: str = DEFAULT_PROJECT, work_item_type: str = "Task", title: str = "", description: str = "", assigned_to: str = "", area_path: str = "", iteration_path: str = "", acceptance_criteria: str = "", parent_id: int = None):
     """
     Create an ADO work item.
     - work_item_type: e.g., Task, User Story, Bug
     - title: short title
     - description: HTML or plain text description
     - assigned_to: email or display name
+    - acceptance_criteria: acceptance criteria for user stories/features
+    - parent_id: ID of parent work item (for creating child tasks/user stories)
     - don't include html tags in description; use plain text
     """
     if not title:
@@ -86,6 +102,11 @@ def create_work_item(project: str = DEFAULT_PROJECT, work_item_type: str = "Task
         fields.append({"op": "add", "path": "/fields/System.AreaPath", "value": area_path})
     if iteration_path:
         fields.append({"op": "add", "path": "/fields/System.IterationPath", "value": iteration_path})
+    if acceptance_criteria:
+        formatted_criteria = format_acceptance_criteria(acceptance_criteria)
+        fields.append({"op": "add", "path": "/fields/Microsoft.VSTS.Common.AcceptanceCriteria", "value": formatted_criteria})
+    if parent_id is not None:
+        fields.append({"op": "add", "path": "/fields/System.Parent", "value": parent_id})
 
     result = create_work_item_ado(project, work_item_type, fields)
     # Auto-save a record locally
@@ -120,17 +141,47 @@ def get_work_item(work_item_id: int):
 
 
 @mcp.tool()
-def create_user_story(project: str = DEFAULT_PROJECT, title: str = "", description: str = "", assigned_to: str = ""):
+def create_user_story(project: str = DEFAULT_PROJECT, title: str = "", description: str = "", assigned_to: str = "", acceptance_criteria: str = ""):
     """Convenience wrapper to create a User Story (work item type may vary by process template)."""
     # In some orgs the type is "User Story" or "Product Backlog Item"
     preferred_types = ["User Story", "Product Backlog Item"]
     # Try each type until success
     for t in preferred_types:
-        res = create_work_item(project=project, work_item_type=t, title=title, description=description, assigned_to=assigned_to)
+        res = create_work_item(project=project, work_item_type=t, title=title, description=description, assigned_to=assigned_to, acceptance_criteria=acceptance_criteria)
         # Successful response includes 'id'
         if isinstance(res, dict) and res.get("id"):
             return res
     return {"error": "Failed to create User Story. Check work_item_type names for your process template.", "last_response": res}
+
+
+@mcp.tool()
+def create_task_for_user_story(user_story_id: int, title: str = "", description: str = "", assigned_to: str = "", project: str = DEFAULT_PROJECT):
+    """
+    Create a task and automatically link it as a child of the specified user story.
+    - user_story_id: ID of the parent user story
+    - title: Task title
+    - description: Task description
+    - assigned_to: Person to assign the task to (optional - leave empty to avoid assignment errors)
+    - project: Project name (defaults to DEFAULT_PROJECT)
+    """
+    if not title:
+        return {"error": "Title is required"}
+    
+    try:
+        user_story_id = int(user_story_id)
+    except Exception:
+        return {"error": "user_story_id must be an integer"}
+    
+    # Create the task with parent_id set to the user story
+    # Skip assigned_to to avoid identity validation errors in ADO
+    return create_work_item(
+        project=project,
+        work_item_type="Task",
+        title=title,
+        description=description,
+        assigned_to="",  # Don't assign to avoid identity errors
+        parent_id=user_story_id
+    )
 
 
 @mcp.tool()
@@ -403,6 +454,171 @@ def list_user_stories(project: str = DEFAULT_PROJECT, state: str = "", limit: in
             "count": len(user_stories),
             "filter_state": state if state else "all",
             "user_stories": user_stories
+        }
+        
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def update_work_item(work_item_id: int, title: str = None, description: str = None, state: str = None, assigned_to: str = None, priority: int = None, area_path: str = None, iteration_path: str = None, acceptance_criteria: str = None, parent_id: int = None):
+    """
+    Update an existing ADO work item (User Story, Task, etc.).
+    Only provided fields will be updated.
+    - work_item_id: The ID of the work item to update
+    - title: New title (optional)
+    - description: New description (optional)
+    - state: New state (e.g., 'New', 'Active', 'Resolved', 'Closed') (optional)
+    - assigned_to: Email or display name to assign to (optional)
+    - priority: Priority number (optional)
+    - area_path: New area path (optional)
+    - iteration_path: New iteration path (optional)
+    - acceptance_criteria: New acceptance criteria (optional)
+    - parent_id: ID of parent work item to link as child (optional)
+    """
+    try:
+        work_item_id = int(work_item_id)
+    except Exception:
+        return {"error": "work_item_id must be an integer"}
+    
+    patch_operations = []
+    
+    if title is not None:
+        patch_operations.append({"op": "add", "path": "/fields/System.Title", "value": title})
+    if description is not None:
+        patch_operations.append({"op": "add", "path": "/fields/System.Description", "value": description})
+    if state is not None:
+        patch_operations.append({"op": "add", "path": "/fields/System.State", "value": state})
+    if assigned_to is not None:
+        patch_operations.append({"op": "add", "path": "/fields/System.AssignedTo", "value": assigned_to})
+    if priority is not None:
+        patch_operations.append({"op": "add", "path": "/fields/Microsoft.VSTS.Common.Priority", "value": priority})
+    if area_path is not None:
+        patch_operations.append({"op": "add", "path": "/fields/System.AreaPath", "value": area_path})
+    if iteration_path is not None:
+        patch_operations.append({"op": "add", "path": "/fields/System.IterationPath", "value": iteration_path})
+    if acceptance_criteria is not None:
+        formatted_criteria = format_acceptance_criteria(acceptance_criteria)
+        patch_operations.append({"op": "add", "path": "/fields/Microsoft.VSTS.Common.AcceptanceCriteria", "value": formatted_criteria})
+    if parent_id is not None:
+        patch_operations.append({"op": "add", "path": "/fields/System.Parent", "value": parent_id})
+    
+    if not patch_operations:
+        return {"error": "At least one field must be provided to update"}
+    
+    try:
+        url = f"{ADO_ORG_URL}/_apis/wit/workitems/{work_item_id}?api-version={API_VERSION}"
+        headers = {"Content-Type": "application/json-patch+json"}
+        
+        resp = requests.patch(url, json=patch_operations, headers=headers, auth=ado_auth(), timeout=30)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "ok": True,
+                "work_item_id": work_item_id,
+                "updated_fields": [op["path"] for op in patch_operations],
+                "work_item": {
+                    "id": data.get("id"),
+                    "title": data.get("fields", {}).get("System.Title"),
+                    "state": data.get("fields", {}).get("System.State"),
+                    "url": data.get("_links", {}).get("html", {}).get("href")
+                }
+            }
+        else:
+            return {
+                "ok": False,
+                "error": f"Failed to update work item",
+                "status_code": resp.status_code,
+                "message": resp.text[:500]
+            }
+            
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
+def get_child_work_items(parent_id: int, project: str = DEFAULT_PROJECT):
+    """
+    Get all child work items (tasks, subtasks) for a given parent work item ID.
+    - parent_id: ID of the parent work item (e.g., User Story)
+    - project: Project name (defaults to DEFAULT_PROJECT)
+    """
+    try:
+        parent_id = int(parent_id)
+    except Exception:
+        return {"error": "parent_id must be an integer"}
+    
+    # Use WIQL to query child work items
+    wiql_query = f"""
+    SELECT [System.Id], [System.Title], [System.State], [System.WorkItemType]
+    FROM WorkItems
+    WHERE [System.Parent] = {parent_id}
+    ORDER BY [System.Id]
+    """
+    
+    try:
+        encoded_project = quote(project, safe='')
+        wiql_url = f"{ADO_ORG_URL}/{encoded_project}/_apis/wit/wiql?api-version={API_VERSION}"
+        headers = {"Content-Type": "application/json"}
+        
+        wiql_payload = {"query": wiql_query}
+        wiql_resp = requests.post(wiql_url, json=wiql_payload, headers=headers, auth=ado_auth(), timeout=30)
+        
+        if wiql_resp.status_code != 200:
+            return {
+                "ok": False,
+                "error": "Failed to query child work items",
+                "status_code": wiql_resp.status_code,
+                "message": wiql_resp.text[:500]
+            }
+        
+        wiql_data = wiql_resp.json()
+        work_items = wiql_data.get("workItems", [])
+        
+        if not work_items:
+            return {
+                "ok": True,
+                "parent_id": parent_id,
+                "count": 0,
+                "child_work_items": [],
+                "message": "No child work items found"
+            }
+        
+        # Get full details for each work item
+        ids = [str(item["id"]) for item in work_items]
+        batch_url = f"{ADO_ORG_URL}/_apis/wit/workitems?ids={','.join(ids)}&api-version={API_VERSION}"
+        
+        batch_resp = requests.get(batch_url, auth=ado_auth(), timeout=30)
+        
+        if batch_resp.status_code != 200:
+            return {
+                "ok": False,
+                "error": "Failed to fetch work item details",
+                "status_code": batch_resp.status_code
+            }
+        
+        batch_data = batch_resp.json()
+        child_items = []
+        
+        for item in batch_data.get("value", []):
+            fields = item.get("fields", {})
+            assigned_to = fields.get("System.AssignedTo", {})
+            
+            child_items.append({
+                "id": item.get("id"),
+                "title": fields.get("System.Title"),
+                "state": fields.get("System.State"),
+                "work_item_type": fields.get("System.WorkItemType"),
+                "assigned_to": assigned_to.get("displayName") if isinstance(assigned_to, dict) else assigned_to,
+                "url": item.get("_links", {}).get("html", {}).get("href")
+            })
+        
+        return {
+            "ok": True,
+            "parent_id": parent_id,
+            "count": len(child_items),
+            "child_work_items": child_items
         }
         
     except Exception as e:

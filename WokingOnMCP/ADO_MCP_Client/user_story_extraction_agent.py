@@ -21,6 +21,17 @@ from docx import Document
 load_dotenv()
 
 # Pydantic models for structured response validation
+class Task(BaseModel):
+    """Model for a single task."""
+    id: str
+    title: str
+    description: str
+    assigned_to: str = ""
+    estimated_hours: int = 0
+    parent_story_id: str = ""
+    notes: str = ""
+
+
 class UserStory(BaseModel):
     """Model for a single user story."""
     id: str
@@ -31,11 +42,13 @@ class UserStory(BaseModel):
     notes: str = ""
     confidence: str
     clarifications_needed: List[str] = []
+    tasks: List[Task] = []
 
 
 class ExtractionResponse(BaseModel):
     """Model for the complete extraction response."""
     user_stories: List[UserStory]
+    tasks: List[Task] = []
     questions: List[str] = []
 
 
@@ -205,7 +218,9 @@ class UserStoryTools:
             title = story.get("title", "Untitled")
             priority = story.get("priority", "Not set")
             confidence = story.get("confidence", "Not specified")
-            output += f"🎯 {story_id}: {title}\n   Priority: {priority} | Confidence: {confidence}\n\n"
+            tasks = story.get("tasks", [])
+            task_count = len(tasks)
+            output += f"🎯 {story_id}: {title}\n   Priority: {priority} | Confidence: {confidence} | Tasks: {task_count}\n\n"
         
         return output
      
@@ -245,6 +260,82 @@ class UserStoryTools:
             "proposed_changes": proposed_changes,
             "follow_up_question": follow_up_question
         }
+    
+    @ai_function(name="add_task", description="Adds a task to a user story")
+    def add_task(
+        self,
+        parent_story_id: Annotated[str, Field(description="ID of the parent user story (e.g., 'US-001')")],
+        title: Annotated[str, Field(description="Task title")],
+        description: Annotated[str, Field(description="Task description")],
+        assigned_to: Annotated[str, Field(description="Person assigned to the task")] = "",
+        estimated_hours: Annotated[int, Field(description="Estimated hours to complete")] = 0
+    ) -> str:
+        """Add a task to a user story."""
+        if not self.agent.extracted_stories or "user_stories" not in self.agent.extracted_stories:
+            return "❌ Error: No user stories available."
+        
+        # Find the parent story
+        story_found = False
+        for story in self.agent.extracted_stories["user_stories"]:
+            if story.get("id") == parent_story_id:
+                story_found = True
+                
+                # Initialize tasks list if not present
+                if "tasks" not in story:
+                    story["tasks"] = []
+                
+                # Generate task ID
+                existing_task_ids = [t.get("id", "") for t in story["tasks"]]
+                task_numbers = [int(id.split("-")[-1]) for id in existing_task_ids if "-T" in id]
+                next_number = max(task_numbers, default=0) + 1
+                new_task_id = f"{parent_story_id}-T{next_number:02d}"
+                
+                # Create new task
+                new_task = {
+                    "id": new_task_id,
+                    "title": title,
+                    "description": description,
+                    "assigned_to": assigned_to,
+                    "estimated_hours": estimated_hours,
+                    "parent_story_id": parent_story_id,
+                    "notes": ""
+                }
+                
+                story["tasks"].append(new_task)
+                
+                return f"✅ Added task {new_task_id} to {parent_story_id}\n\n📋 Task details:\n{json.dumps(new_task, indent=2)}"
+        
+        if not story_found:
+            available_ids = [s.get("id") for s in self.agent.extracted_stories["user_stories"]]
+            return f"❌ Error: Story '{parent_story_id}' not found. Available IDs: {', '.join(available_ids)}"
+    
+    @ai_function(name="list_tasks", description="Lists all tasks for a user story")
+    def list_tasks(
+        self,
+        parent_story_id: Annotated[str, Field(description="ID of the parent user story (e.g., 'US-001')")]
+    ) -> str:
+        """List all tasks for a user story."""
+        if not self.agent.extracted_stories or "user_stories" not in self.agent.extracted_stories:
+            return "❌ Error: No user stories available."
+        
+        for story in self.agent.extracted_stories["user_stories"]:
+            if story.get("id") == parent_story_id:
+                tasks = story.get("tasks", [])
+                if not tasks:
+                    return f"📋 No tasks for {parent_story_id}"
+                
+                output = f"📋 **Tasks for {parent_story_id} ({len(tasks)} total)**\n\n"
+                for task in tasks:
+                    task_id = task.get("id", "N/A")
+                    title = task.get("title", "Untitled")
+                    assigned = task.get("assigned_to", "Unassigned")
+                    hours = task.get("estimated_hours", 0)
+                    output += f"📌 {task_id}: {title}\n   Assigned: {assigned} | Est. Hours: {hours}\n\n"
+                
+                return output
+        
+        available_ids = [s.get("id") for s in self.agent.extracted_stories["user_stories"]]
+        return f"❌ Error: Story '{parent_story_id}' not found. Available IDs: {', '.join(available_ids)}"
 
 
 class UserStoryExtractionAgent:
@@ -270,20 +361,26 @@ class UserStoryExtractionAgent:
         
 Your responsibilities:
 1. Carefully read the provided document/transcript
-2. Identify all potential user stories, features, and requirements
+2. Identify all potential user stories, features, requirements, AND tasks
 3. Extract each user story with:
    - A clear, concise title (max 100 characters)
    - A detailed description in "As a [role], I want [feature] so that [benefit]" format when possible
    - Acceptance criteria (specific, testable conditions)
    - Priority estimation (High/Medium/Low)
    - Any dependencies or technical notes mentioned
+   - Associated tasks (if mentioned)
 
-4. If information is unclear or missing:
+4. Extract tasks that implement user stories:
+   - Link tasks to their parent user story
+   - Include task title, description, estimated hours
+   - Note who should be assigned if mentioned
+
+5. If information is unclear or missing:
    - Ask specific clarifying questions
    - Don't make assumptions
    - Flag incomplete items for user review
 
-5. Structure your output as JSON with this schema:
+6. Structure your output as JSON with this schema:
 {
   "user_stories": [
     {
@@ -294,10 +391,22 @@ Your responsibilities:
       "priority": "High|Medium|Low",
       "notes": "Any additional context or dependencies",
       "confidence": "High|Medium|Low",
-      "clarifications_needed": ["Question 1", "Question 2"]
+      "clarifications_needed": ["Question 1", "Question 2"],
+      "tasks": [
+        {
+          "id": "US-001-T01",
+          "title": "Task title",
+          "description": "Task description",
+          "assigned_to": "Person name",
+          "estimated_hours": 8,
+          "parent_story_id": "US-001",
+          "notes": ""
+        }
+      ]
     }
   ],
-  "summary": "Brief summary of extracted stories",
+  "tasks": [],
+  "summary": "Brief summary of extracted stories and tasks",
   "questions": ["Overall questions about the document"]
 }
 
@@ -358,7 +467,9 @@ Always call tools when users request these actions. Never describe what you woul
                 self.tools.add_story,
                 self.tools.list_stories,
                 self.tools.get_story_details,
-                self.tools.clarification_decision
+                self.tools.clarification_decision,
+                self.tools.add_task,
+                self.tools.list_tasks
             ]
         )
 
@@ -576,6 +687,17 @@ Return ONLY the updated user story in JSON format with the same schema."""
                 print(f"   ✅ Acceptance Criteria:")
                 for ac_idx, criterion in enumerate(criteria, 1):
                     print(f"      {ac_idx}. {criterion}")
+            
+            # Tasks
+            tasks = story.get('tasks', [])
+            if tasks:
+                print(f"   📋 Tasks ({len(tasks)}):")
+                for task in tasks:
+                    task_id = task.get('id', 'N/A')
+                    task_title = task.get('title', 'Untitled')
+                    assigned = task.get('assigned_to', 'Unassigned')
+                    hours = task.get('estimated_hours', 0)
+                    print(f"      • {task_id}: {task_title} (Assigned: {assigned}, Est: {hours}h)")
             
             # Notes
             notes = story.get('notes', '').strip()
