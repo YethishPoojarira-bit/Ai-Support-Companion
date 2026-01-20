@@ -347,6 +347,67 @@ def assign_work_item(work_item_id: int, person_name: str):
 
 
 @mcp.tool()
+def add_parent_link(child_work_item_id: int, parent_work_item_id: int):
+    """
+    Add a parent-child relationship between two existing work items.
+    This is the alternative to setting System.Parent during creation.
+    
+    - child_work_item_id: The ID of the child work item (e.g., Task)
+    - parent_work_item_id: The ID of the parent work item (e.g., User Story)
+    
+    This establishes the relationship: Parent <- Child
+    """
+    try:
+        child_work_item_id = int(child_work_item_id)
+        parent_work_item_id = int(parent_work_item_id)
+    except Exception:
+        return {"error": "Both work_item_id values must be integers"}
+    
+    try:
+        # Use JSON Patch to add the parent relationship
+        url = f"{ADO_ORG_URL}/_apis/wit/workitems/{child_work_item_id}?api-version={API_VERSION}"
+        headers = {"Content-Type": "application/json-patch+json"}
+        
+        # Add parent link using relations
+        patch_document = [
+            {
+                "op": "add",
+                "path": "/relations/-",
+                "value": {
+                    "rel": "System.LinkTypes.Hierarchy-Reverse",
+                    "url": f"{ADO_ORG_URL}/_apis/wit/workItems/{parent_work_item_id}",
+                    "attributes": {
+                        "comment": "Adding parent link"
+                    }
+                }
+            }
+        ]
+        
+        resp = requests.patch(url, json=patch_document, headers=headers, auth=ado_auth(), timeout=30)
+        
+        if resp.status_code == 200:
+            data = resp.json()
+            return {
+                "ok": True,
+                "child_id": child_work_item_id,
+                "parent_id": parent_work_item_id,
+                "child_title": data.get("fields", {}).get("System.Title"),
+                "message": f"Successfully linked work item {child_work_item_id} as child of {parent_work_item_id}",
+                "url": data.get("_links", {}).get("html", {}).get("href")
+            }
+        else:
+            return {
+                "ok": False,
+                "error": "Failed to add parent link",
+                "status_code": resp.status_code,
+                "details": resp.text
+            }
+            
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+@mcp.tool()
 def list_user_stories(project: str = DEFAULT_PROJECT, state: str = "", limit: int = 50):
     """
     List all User Stories in a project.

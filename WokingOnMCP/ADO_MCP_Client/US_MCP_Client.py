@@ -76,22 +76,26 @@ async def push_stories_from_file(filename: str):
 
                 # Create tasks for this user story
                 tasks = story.get("tasks", [])
+                created_task_ids = []
                 if tasks:
                     print(f"   📋 Creating {len(tasks)} tasks...")
                     for task_idx, task in enumerate(tasks, 1):
                         try:
+                            # Format task title with ID and name
+                            task_title = f"{task.get('id', f'Task-{task_idx}')}: {task.get('title', 'Untitled Task')}"
                             task_description = task.get("description", "")
                             if task.get("notes"):
                                 task_description += f"\n\nNotes: {task['notes']}"
                             
+                            # Create task without parent link first
                             task_result = await session.call_tool(
-                                "create_task_for_user_story",
+                                "create_work_item",
                                 arguments={
-                                    "user_story_id": ado_id,
-                                    "title": task.get("title", "Untitled Task"),
+                                    "project": "Online Learning Portal",
+                                    "work_item_type": "Task",
+                                    "title": task_title,
                                     "description": task_description,
-                                    "assigned_to": task.get("assigned_to", ""),
-                                    "project": "Online Learning Portal"
+                                    "assigned_to": ""
                                 }
                             )
                             
@@ -104,6 +108,7 @@ async def push_stories_from_file(filename: str):
                             
                             if task_ado_id:
                                 print(f"   ✅ Task {task_idx}/{len(tasks)}: {task.get('id', 'N/A')} (ADO ID: {task_ado_id})")
+                                created_task_ids.append({"id": task_ado_id, "name": task_title})
                                 success_tasks += 1
                             else:
                                 # Print detailed error response
@@ -119,6 +124,54 @@ async def push_stories_from_file(filename: str):
                         except Exception as task_error:
                             print(f"   ❌ Task {task_idx}/{len(tasks)} failed: {task_error}")
                             failed_tasks += 1
+                    
+                    # Update user story description with task links
+                    if created_task_ids:
+                        # First, link all tasks to the user story
+                        print(f"   🔗 Linking {len(created_task_ids)} tasks to user story...")
+                        linked_count = 0
+                        for task_info in created_task_ids:
+                            try:
+                                link_result = await session.call_tool(
+                                    "add_parent_link",
+                                    arguments={
+                                        "child_work_item_id": task_info['id'],
+                                        "parent_work_item_id": ado_id
+                                    }
+                                )
+                                
+                                if not link_result.isError:
+                                    linked_count += 1
+                                else:
+                                    print(f"   ⚠️  Could not link task {task_info['id']}: {link_result.content}")
+                            except Exception as link_error:
+                                print(f"   ⚠️  Error linking task {task_info['id']}: {link_error}")
+                        
+                        print(f"   ✅ Linked {linked_count}/{len(created_task_ids)} tasks to user story")
+                        
+                        # Then update description with task references
+                        try:
+                            print(f"   📝 Adding task references to user story description...")
+                            task_links_html = "<br/><br/><strong>Related Tasks:</strong><ul>"
+                            for task_info in created_task_ids:
+                                task_links_html += f"<li>#{task_info['id']}: {task_info['name']}</li>"
+                            task_links_html += "</ul>"
+                            
+                            # Append to existing description
+                            updated_description = description + task_links_html
+                            
+                            update_result = await session.call_tool(
+                                "update_work_item",
+                                arguments={
+                                    "work_item_id": ado_id,
+                                    "description": updated_description
+                                }
+                            )
+                            
+                            if not update_result.isError:
+                                print(f"   ✅ Task references added to user story description")
+                        except Exception as update_error:
+                            print(f"   ⚠️  Could not update user story description: {update_error}")
 
             except Exception as e:
                 print(f"❌ Failed {story['id']}: {e}")
