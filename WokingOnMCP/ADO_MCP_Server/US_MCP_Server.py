@@ -105,10 +105,46 @@ def create_work_item(project: str = DEFAULT_PROJECT, work_item_type: str = "Task
     if acceptance_criteria:
         formatted_criteria = format_acceptance_criteria(acceptance_criteria)
         fields.append({"op": "add", "path": "/fields/Microsoft.VSTS.Common.AcceptanceCriteria", "value": formatted_criteria})
-    if parent_id is not None:
-        fields.append({"op": "add", "path": "/fields/System.Parent", "value": parent_id})
+    
+    # Don't set System.Parent during creation - it doesn't work reliably
+    # We'll link after creation using the relations API
 
     result = create_work_item_ado(project, work_item_type, fields)
+    
+    # If parent_id is provided and work item was created successfully, link it
+    if parent_id is not None and isinstance(result, dict) and result.get("id"):
+        child_id = result.get("id")
+        try:
+            # Use relations API to establish parent-child link
+            url = f"{ADO_ORG_URL}/_apis/wit/workitems/{child_id}?api-version={API_VERSION}"
+            headers = {"Content-Type": "application/json-patch+json"}
+            
+            patch_document = [
+                {
+                    "op": "add",
+                    "path": "/relations/-",
+                    "value": {
+                        "rel": "System.LinkTypes.Hierarchy-Reverse",
+                        "url": f"{ADO_ORG_URL}/_apis/wit/workItems/{parent_id}",
+                        "attributes": {
+                            "comment": "Auto-linked during creation"
+                        }
+                    }
+                }
+            ]
+            
+            resp = requests.patch(url, json=patch_document, headers=headers, auth=ado_auth(), timeout=30)
+            
+            if resp.status_code == 200:
+                # Update result with link info
+                result["parent_link_added"] = True
+                result["parent_id"] = parent_id
+            else:
+                result["parent_link_warning"] = f"Failed to link parent: {resp.status_code}"
+                
+        except Exception as link_error:
+            result["parent_link_warning"] = f"Error linking parent: {str(link_error)}"
+    
     # Auto-save a record locally
     try:
         OUT_DIR = os.path.join(os.path.dirname(__file__), "output")
