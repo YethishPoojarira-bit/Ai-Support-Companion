@@ -96,6 +96,8 @@ task_result = await session.call_tool(
 - `child_work_item_id` (int): ID of the child work item
 - `parent_work_item_id` (int): ID of the parent work item
 
+-`add_parent_link` PATCHes the *child* work item to add a relation referencing the *parent* (rel: `System.LinkTypes.Hierarchy-Reverse`), so the child is linked to the parent and the parent will list that child in Azure DevOps.
+
 **Usage in Client**:
 ```python
 link_result = await session.call_tool(
