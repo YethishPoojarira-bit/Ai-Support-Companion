@@ -254,3 +254,59 @@ Run client push (in `ADO_MCP_Client`):
 ```bash
 python US_MCP_Client.py --push --file user_stories_20260121_120000.json
 ```
+
+## Extraction Agent (brief)
+
+- **File**: `user_story_extraction_agent.py`
+- **Purpose**: Uses an Azure OpenAI-backed conversational agent to extract structured user stories and tasks from meeting transcripts or documents, validate them with Pydantic models, and save them to JSON for ingestion by the MCP client.
+- **Key design points**:
+    - Uses Pydantic models `Task`, `UserStory`, and `ExtractionResponse` to strictly validate LLM output.
+    
+    # Pydantic models for structured response validation
+        class Task(BaseModel):
+            """Model for a single task."""
+            id: str
+            title: str
+            description: str
+            assigned_to: str = ""
+            estimated_hours: int = 0
+            parent_story_id: str = ""
+            notes: str = ""
+
+
+        class UserStory(BaseModel):
+            """Model for a single user story."""
+            id: str
+            title: str
+            description: str
+            acceptance_criteria: List[str]
+            priority: str
+            notes: str = ""
+            confidence: str
+            clarifications_needed: List[str] = []
+            tasks: List[Task] = []
+
+
+        class ExtractionResponse(BaseModel):
+            """Model for the complete extraction response."""
+            user_stories: List[UserStory]
+            tasks: List[Task] = []
+            questions: List[str] = []
+
+
+    - Exposes tools (via `@ai_function`) for `save_user_stories`, `add_user_story`, `update_user_story`, `remove_user_story`, `list_all_stories`, `get_story_details`, `add_task`, and `list_tasks` so the agent can mutate and manage stories programmatically.
+    - Conversational flow separates extraction (agent with response model) and tool-driven conversational management (`conversational_agent`).
+    - Designed for human-in-the-loop: clarifications are surfaced and the user can approve before saving.
+
+- **Output**: Saves timestamped JSON files into the `output/` folder (default `./output`) with a `metadata` block and the validated `user_stories` payload. These files are the expected input for `US_MCP_Client.py`.
+- **How it works (short)**:
+    1. Read a `.txt` or `.docx` transcript using `read_document()`.
+ 2. Run `agent.run()` with an extraction prompt; parse and validate the JSON using `ExtractionResponse`.
+ 3. Display results and optionally enter a clarification loop where the agent uses tools to request or apply changes.
+ 4. When approved, call `save_user_stories` which writes a file in `output/` for the MCP client to upload.
+
+Example run (interactive):
+```bash
+python user_story_extraction_agent.py
+# then follow prompts to load a document and save approved stories
+```

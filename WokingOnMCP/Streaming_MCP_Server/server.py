@@ -27,4 +27,12 @@ async def echo(message: str) -> str:
 
 if __name__ == "__main__":
     # print(os.getenv("LANGSMITH_API_KEY"))
-    mcp.run(transport="streamable-http")
+    # mcp.run(transport="streamable-http", host="127.0.0.1", port="8001")
+    config = {
+        "host": os.getenv("MCP_HOST", "0.0.0.0"),
+        "port": 3001,
+        "path": "/mcp",
+        "session_timeout": 3600,
+        "max_connections": 1000
+        }
+    mcp.run(transport="streamable-http", **config)
