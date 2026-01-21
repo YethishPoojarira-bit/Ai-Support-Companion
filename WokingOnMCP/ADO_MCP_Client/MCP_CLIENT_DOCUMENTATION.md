@@ -201,28 +201,50 @@ python US_MCP_Client.py --push --file <filename.json>
 
 This section describes the complete flow from extracting user stories with the LLM agent, saving them to a JSON file, and uploading them to Azure DevOps via the MCP client and server.
 
+
+The system is designed to run the LLM extractor, MCP server, and MCP client as separate processes. This keeps responsibilities distinct and lets you run, test, and troubleshoot each piece independently.
+
 1) Extraction (LLM → JSON)
 - Where: `user_story_extraction_agent.py` (class `UserStoryTools`).
-- Models: `Task`, `UserStory`, `ExtractionResponse` are defined as Pydantic models at the top of the file.
-- Save step: The `save_stories` tool (`@ai_function(name="save_user_stories")`) writes a timestamped JSON file to `OUTPUT_DIR` (default `./output`). It writes an object with `metadata` plus the extracted data (`user_stories`, `summary`, `questions`, etc.). Example path: `output/user_stories_20260121_120000.json`.
+- Purpose: Extracts user stories and tasks from transcripts and saves validated JSON to `OUTPUT_DIR`.
+- Run (interactive):
+```powershell
+Set-Location 'c:\Ai Support Companion\WokingOnMCP\ADO_MCP_Client'
+python user_story_extraction_agent.py
+```
+- Environment variables used by the agent:
+    - `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_DEPLOYMENT` (or `AZURE_OPENAI_DEPLOYMENT_NAME`), `AZURE_OPENAI_API_KEY`, optional `OUTPUT_DIR`.
+- Output: Timestamped JSON in `output/` (e.g. `user_stories_20260121_120000.json`). This file is the input to the MCP client.
 
-2) Client upload (JSON → MCP Server)
-- CLI: run `python US_MCP_Client.py --push --file <filename.json>` from the `ADO_MCP_Client` folder. The `--file` name is resolved against the `output/` directory.
-- File read: `push_stories_from_file()` loads the JSON file and expects a top-level `user_stories` array.
-- Sequence per story (see `US_MCP_Client.py`):
-    1. Call `create_user_story` with formatted title and description.
-    2. For each task, call `create_work_item` (type `Task`) to create the task work item.
-    3. Link each created task to the user story by calling `add_parent_link` (child_id, parent_id).
-    4. Append task references to the story description and call `update_work_item` to persist the description.
+2) MCP Server (MCP Server → Azure DevOps)
+- Where: `ADO_MCP_Server/US_MCP_Server.py`.
+- Purpose: Exposes tools over MCP to create/update/link work items in Azure DevOps.
+- Run (server process):
+```powershell
+Set-Location 'c:\Ai Support Companion\WokingOnMCP\ADO_MCP_Server'
+# Ensure env: AZURE_DEVOPS_PAT, AZURE_DEVOPS_ORG_URL, AZURE_DEVOPS_PROJECT
+python US_MCP_Server.py
+```
+- Environment variables used by the server:
+    - `AZURE_DEVOPS_PAT`, `AZURE_DEVOPS_ORG_URL`, `AZURE_DEVOPS_PROJECT`, optional `OUTPUT_DIR` (for JSONL audit).
+- Notes:
+    - Server logs created work items to `ADO_MCP_Server/output/created_work_items.json` (JSONL).
+    - Parent-child linking uses ADO Relations API; if identity fields (AssignedTo) are invalid, server omits assignment to avoid 400 errors.
 
-3) Server actions (MCP Server → ADO)
-- Authentication: `US_MCP_Server.py` reads `AZURE_DEVOPS_PAT` and uses `ado_auth()` to authorize all REST calls to ADO.
-- Create mechanics: `create_work_item` builds JSON Patch operations and calls `create_work_item_ado()` which performs `PATCH /_apis/wit/workitems/$type` with `application/json-patch+json`.
-- Parent linking: The server uses the Relations API by PATCHing `/relations/-` to the child work item with `rel: System.LinkTypes.Hierarchy-Reverse` pointing at the parent work item URL. `add_parent_link` does this explicitly when called from the client.
-- Local audit: After creating a work item the server appends a JSON record to `ADO_MCP_Server/output/created_work_items.json` (newline-delimited JSON).
+3) MCP Client (JSON → MCP Server)
+- Where: `ADO_MCP_Client/US_MCP_Client.py`.
+- Purpose: Reads extraction JSON and pushes user stories and tasks to the MCP server via tool calls.
+- Run (client process):
+```powershell
+Set-Location 'c:\Ai Support Companion\WokingOnMCP\ADO_MCP_Client'
+python US_MCP_Client.py --push --file user_stories_20260121_120000.json
+```
+- Notes:
+    - The client expects the MCP Server to be reachable (default `http://127.0.0.1:8000/mcp`).
+    - If the server uses a different port, update `MCP_SERVER_URL` in the client or set the corresponding environment variables.
 
 4) Data formats and expectations
-- Extraction JSON: must include `user_stories` array where each story has `id`, `title`, `description`, `acceptance_criteria` (list), and optional `tasks` (list of task objects with `id`, `title`, `description`, `notes`). See example below.
+- Extraction JSON: must include `user_stories` array where each story has `id`, `title`, `description`, `acceptance_criteria` (list), and optional `tasks` (list of task objects with `id`, `title`, `description`, `notes`).
 - MCP tool responses: server returns JSON (tool response text contains JSON); `US_MCP_Client.py` loads `result.content[0].text` via `json.loads()` and expects an `id` field for created items.
 
 5) Example JSON
@@ -261,38 +283,6 @@ python US_MCP_Client.py --push --file user_stories_20260121_120000.json
 - **Purpose**: Uses an Azure OpenAI-backed conversational agent to extract structured user stories and tasks from meeting transcripts or documents, validate them with Pydantic models, and save them to JSON for ingestion by the MCP client.
 - **Key design points**:
     - Uses Pydantic models `Task`, `UserStory`, and `ExtractionResponse` to strictly validate LLM output.
-    
-    # Pydantic models for structured response validation
-        class Task(BaseModel):
-            """Model for a single task."""
-            id: str
-            title: str
-            description: str
-            assigned_to: str = ""
-            estimated_hours: int = 0
-            parent_story_id: str = ""
-            notes: str = ""
-
-
-        class UserStory(BaseModel):
-            """Model for a single user story."""
-            id: str
-            title: str
-            description: str
-            acceptance_criteria: List[str]
-            priority: str
-            notes: str = ""
-            confidence: str
-            clarifications_needed: List[str] = []
-            tasks: List[Task] = []
-
-
-        class ExtractionResponse(BaseModel):
-            """Model for the complete extraction response."""
-            user_stories: List[UserStory]
-            tasks: List[Task] = []
-            questions: List[str] = []
-
 
     - Exposes tools (via `@ai_function`) for `save_user_stories`, `add_user_story`, `update_user_story`, `remove_user_story`, `list_all_stories`, `get_story_details`, `add_task`, and `list_tasks` so the agent can mutate and manage stories programmatically.
     - Conversational flow separates extraction (agent with response model) and tool-driven conversational management (`conversational_agent`).
@@ -309,4 +299,61 @@ Example run (interactive):
 ```bash
 python user_story_extraction_agent.py
 # then follow prompts to load a document and save approved stories
+```
+
+## Client Input & Flow (LLM → Client)
+
+- **Purpose**: This document focuses on the MCP *client* behavior — how the client consumes an extraction JSON file and calls MCP tools to push work items. The server implementation details are intentionally omitted here; the client expects the server to expose the required tools (names listed below).
+
+- **Input**: A validated extraction JSON file produced by the LLM extraction agent (`user_story_extraction_agent.py`) saved in the `output/` directory (e.g., `output/user_stories_20260121_120000.json`). The client consumes this file; you do not need server internals to run the client.
+
+- **Run the client**:
+```powershell
+Set-Location 'c:\Ai Support Companion\WokingOnMCP\ADO_MCP_Client'
+python US_MCP_Client.py --push --file user_stories_20260121_120000.json
+```
+
+- **Environment / Configuration**:
+    - `MCP_SERVER_URL`: URL of the MCP server endpoint (default: `http://127.0.0.1:8000/mcp`). If your server uses a different port or host, update this value in `US_MCP_Client.py` or set the corresponding environment variable used by your client.
+
+- **Client Sequence (what the client does)**:
+ 1. Load and validate the extraction JSON from `output/`.
+ 2. For each `user_story` in the file, call the server tool to create a user story and parse the returned ADO work item `id`.
+ 3. For each task under a user story, call the server tool to create the task and collect its `id`.
+ 4. Call the server tool to link each created task to its parent user story.
+ 5. Update the user story description to include task references and persist the update.
+
+- **Server tools expected by the client (implemented in server)**:
+    - `create_user_story` — create a user-story work item (used by the client to create stories).
+    - `create_work_item` — generic work item creator (used to create tasks or other types).
+    - `add_parent_link` — create a parent-child relation between work items.
+    - `update_work_item` — update fields (description, state, etc.) on an existing work item.
+    (These are referenced by name here; their implementation lives in the MCP server.)
+
+- **Data formats & expectations (client side)**:
+    - The input JSON must contain a top-level `user_stories` array; each story should include `id`, `title`, `description`, `acceptance_criteria` (list), and optionally `tasks` (list of task objects with `id`, `title`, `description`, `notes`).
+    - The client expects each tool call to return JSON text containing at least an `id` field for created items; `US_MCP_Client.py` parses `result.content[0].text` via `json.loads()`.
+
+- **Example JSON** (client input):
+```json
+{
+    "metadata": {"extracted_at": "2026-01-21T12:00:00", "approved": true, "total_stories": 1},
+    "user_stories": [
+        {
+            "id": "US-001",
+            "title": "User can log in",
+            "description": "As a user, I want to log in so that I can access my dashboard.",
+            "acceptance_criteria": ["Login accepts username/password", "Shows error on wrong credentials"],
+            "priority": "High",
+            "tasks": [
+                {"id": "T-1", "title": "Create login UI", "description": "Create a responsive login page", "notes": ""}
+            ]
+        }
+    ]
+}
+```
+
+- **Example command** (client):
+```powershell
+python US_MCP_Client.py --push --file user_stories.json
 ```
