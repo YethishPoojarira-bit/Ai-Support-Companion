@@ -38,8 +38,8 @@ graph TD
         TopicAgent -.-> SimulateRead
         SimulateRead --> IdentifyThemes
         
-        IdentifyThemes -->|Categorize| Technical[**Technical/Hard Skills**<br/>(Languages, Tools, Domain Knowledge)]
-        IdentifyThemes -->|Categorize| Behavioral[**Behavioral/Soft Skills**<br/>(Culture, Leadership Principles)]
+        IdentifyThemes -->|Categorize| Technical["**Technical/Hard Skills**<br/>(Languages, Tools, Domain Knowledge)"]
+        IdentifyThemes -->|Categorize| Behavioral["**Behavioral/Soft Skills**<br/>(Culture, Leadership Principles)"]
         
         TopicAgent -->|Output: Structured JSON| HighLevelTopics[High-Level Topics JSON]
     end
