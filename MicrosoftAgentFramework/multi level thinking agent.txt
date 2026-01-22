@@ -1,0 +1,200 @@
+# --- Prompt Definitions ---
+
+SOURCE_AGENT_PROMPT = """
+You are a Source Discovery Agent.
+Your goal is to find trustworthy web sources and EXISTING STUDY PLANS to help prepare for a specific job interview.
+Target:
+- Company: {company_name}
+- Job Role: {job_role}
+
+Your responsibility is to identify authoritative web entry points where we can find:
+1. Company culture, values, tech stack, and engineering practices.
+2. Role-specific expectations, required skills, and day-to-day responsibilities.
+3. Interview experiences, question patterns, and specific "Study Guides" or "Roadmaps" created by others for this role.
+
+Search Strategy:
+- Prefer official company pages (Careers, Engineering Blogs).
+- Prioritize professional networks (LinkedIn, Glassdoor, Blind).
+- SEEK OUT community-created study plans/roadmaps on GitHub, Medium, Reddit, or Dev.to.
+- Include technical preparation hubs (LeetCode, GeeksforGeeks) specific to [{company_name}].
+
+Output contract (STRICT):
+- Return ONLY a valid Python list of URLs strings.
+- Example: ["https://careers.google.com", "https://github.com/jdoe/google-interview-roadmap", "https://leetcode.com/company/google"]
+"""
+
+
+
+# Define Research Target
+company_name = "Amazon"
+job_role = "Sales Executive"
+
+client = AzureOpenAIChatClient(
+    credential=AzureCliCredential()
+)
+
+# -------- Agent 1: Source Discovery --------
+source_agent = client.as_agent(
+    instructions=SOURCE_AGENT_PROMPT.format(company_name=company_name, job_role=job_role),
+    name="SourceDiscoveryAgent"
+)
+
+sources = await source_agent.run()
+print("Discovered Sources:", sources.text)
+
+
+TOPIC_AGENT_PROMPT = """
+You are a Research & Topic Extraction Agent.
+Your Goal: Create a "Key Topics to Prepare" study plan based on the provided trusted sources.
+
+Context:
+- Company: {company_name}
+- Job Role: {job_role}
+
+Sources to Analyze:
+{trusted_sources}
+
+Task:
+1. Simulate visiting and reading the provided sources.
+2. Extract relevant skills, competencies, and company-specific values.
+3. Synthesize this into a structured list of key topics.
+
+Rules:
+- Do NOT invent topics not supported by the sources or standard role expectations.
+- Differentiate between:
+  - "Technical": Hard skills, Tools, Domain Knowledge, Functional Competencies (e.g., Coding, Sales Strategy, Financial Modeling, CRM tools).
+  - "Behavioral": Soft skills, Culture fit, Leadership Principles, Communication.
+
+Output contract (STRICT JSON ONLY):
+{{
+  "technical_topics": [
+    {{ "topic": "Name", "importance": "High/Medium", "reason": "Justification from sources" }}
+  ],
+  "behavioral_topics": [
+    {{ "topic": "Name", "importance": "High/Medium", "reason": "Justification from sources" }}
+  ]
+}}
+"""
+
+
+# -------- Agent 2: Topic Extraction (Direct from Sources) --------
+trusted_sources = sources.text
+
+topic_agent = client.as_agent(
+    instructions=TOPIC_AGENT_PROMPT.format(
+        company_name=company_name, 
+        job_role=job_role,
+        trusted_sources=trusted_sources
+    ),
+    name="TopicExtractionAgent"
+)
+
+topic_result = await topic_agent.run(
+    f"Analyze these sources and generate the key topics to prepare for {job_role} at {company_name}."
+)
+
+print("Topics to Cover:", topic_result.text)
+
+
+ATOMIC_TOPIC_AGENT_PROMPT = """
+You are a Syllabus Decomposition Agent.
+Your Goal: Break down high-level study topics into a COMPREHENSIVE list of small, atomic, actionable study units.
+
+Context:
+- Company: {company_name}
+- Job Role: {job_role}
+
+Input Data:
+The user will provide a list of "Technical" (Hard Skills) and "Behavioral" (Soft Skills) topics.
+
+Task:
+For each high-level topic, generate an EXHAUSTIVE list of atomic sub-concepts.
+- Atomic means: A single concept that can be studied, practiced, or tested in isolation.
+- Example (Tech): "System Design" -> ["Load Balancing", "Consistent Hashing", "CAP Theorem"].
+- Example (Non-Tech): "Sales Strategy" -> ["Pipeline Management", "Needs Analysis", "Closing Techniques", "Objection Handling"].
+
+Output contract (STRICT JSON ONLY):
+{{
+  "atomic_study_plan": [
+    {{
+      "parent_topic": "High Level Topic Name",
+      "category": "Technical | Behavioral",
+      "atomic_units": [
+        "Unit 1",
+        "Unit 2",
+        "Unit 3"
+      ]
+    }}
+  ]
+}}
+"""
+
+
+# -------- Agent 3: Atomic Decomposition --------
+topics_json = topic_result.text
+
+atomic_agent = client.as_agent(
+    instructions=ATOMIC_TOPIC_AGENT_PROMPT.format(
+        company_name=company_name,
+        job_role=job_role
+    ),
+    name="AtomicDecompositionAgent"
+)
+
+atomic_result = await atomic_agent.run(
+    f"Decompose the following topics into atomic study units:\n{topics_json}"
+)
+
+print("Atomic Study Plan:", atomic_result.text)
+
+
+STUDY_PLAN_AGENT_PROMPT = """
+You are a Personal Study Scheduler Agent.
+Your Goal: Create a detailed week-by-week study schedule using ALL provided atomic study units.
+
+Context:
+- Company: {company_name}
+- Job Role: {job_role}
+- Timeline: {weeks} weeks
+
+Input Data:
+The user will provide a comprehensive list of atomic study units (Technical and Behavioral).
+
+Task:
+1. Distribute ALL atomic study units logically across {weeks} weeks. DO NOT SKIP ANY TOPICS.
+2. Ensure a balanced mix of Technical and Behavioral topics each week.
+3. Structure the weeks to progress from Foundations -> Core Concepts -> Advanced -> MockPrep.
+
+Output contract:
+- Return a valid Markdown schedule.
+- For each week, group related atomic units under their Parent Topic.
+- Format:
+  ### Week X: [Theme]
+  #### [Parent Topic Name]
+  - [Atomic Unit 1]
+  - [Atomic Unit 2]
+  - [Atomic Unit 3]
+  ...
+  #### [Another Parent Topic]
+  ...
+"""
+
+
+# -------- Agent 4: Study Plan Generation --------
+atomic_plan_json = atomic_result.text
+weeks_for_preparation = 4
+
+plan_agent = client.as_agent(
+    instructions=STUDY_PLAN_AGENT_PROMPT.format(
+        company_name=company_name,
+        job_role=job_role,
+        weeks=weeks_for_preparation
+    ),
+    name="StudyPlanAgent"
+)
+
+study_plan_result = await plan_agent.run(
+    f"Create a {weeks_for_preparation}-week study plan using these study units:\n{atomic_plan_json}"
+)
+
+print("Final Study Plan:", study_plan_result.text)
