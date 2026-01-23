@@ -1,123 +1,125 @@
-# Voice Agent (Google Gemini Live) - Code Walkthrough
+ # Voice Agent (Google Gemini Live) — Updated Walkthrough
 
-## Overview
-This script implements a real-time, full-duplex voice assistant using Google Gemini's Live API. It streams microphone input to Gemini, receives AI-generated audio responses, and plays them back, all in a continuous loop. The agent is designed with a playful, research-focused persona and optimized for stability and clarity.
+ This document describes the current state of `voice_agent.py` and the recent changes made during tuning and persona updates.
 
----
+ ## Summary of Recent Changes
+ - `CHUNK` is set to `2048` (approx 85ms) for better connection stability.
+ - Server-side automatic VAD is enabled with `start_of_speech_sensitivity: START_SENSITIVITY_LOW` and `silence_duration_ms: 600` (you can adjust this in `CONFIG`).
+ - System prompt updated to a dual-personality behavior: a playful companion and a mid-level technical explainer that maintains energetic delivery while reducing silliness during technical answers.
+ - Input read uses `exception_on_overflow=False` to avoid microphone crashes when the CPU is under load.
+ - Reconnection and error logging were improved for clearer diagnostics.
 
-## Key Features
-- **Real-time voice streaming** (input/output)
-- **Full duplex**: Simultaneous speaking and listening
-- **Server-side Voice Activity Detection (VAD)**
-- **Custom persona**: "Hyperactive 6-year-old genius researcher"
-- **Automatic reconnection** on server disconnects
-- **Optimized audio buffer for stability**
+ ## What this script does
+ The script implements a real-time voice assistant that:
+ - Streams microphone audio to Google Gemini Live.
+ - Receives the model's audio responses and plays them on speakers.
+ - Prints any text parts of responses to the console.
+ - Reconnects automatically if the server closes the connection.
 
----
+ ## Important configuration
+ - `FORMAT`: `pyaudio.paInt16` (PCM 16-bit)
+ - `CHANNELS`: `1` (mono)
+ - `rate_in` / `rate_out`: `24000` Hz
+ - `CHUNK`: `2048` samples (~85ms)
+ - `MODEL_ID`: `gemini-2.5-flash-native-audio-preview-12-2025`
+ - `CONFIG` highlights:
+     - `response_modalities`: `AUDIO`
+     - `max_output_tokens`: `8192`
+     - `realtime_input_config.automatic_activity_detection.start_of_speech_sensitivity`: `START_SENSITIVITY_LOW`
+     - `realtime_input_config.automatic_activity_detection.silence_duration_ms`: `600`
+     - `speech_config.voice_config.prebuilt_voice_config.voice_name`: `Aoede`
+     - `system_instruction`: Dual-personality prompt (Playful Companion + Technical Explainer)
 
-## File Structure
-- `voice_agent.py`: Main script (all logic in one file)
+ ## Core components (how it works)
+ - `audio_input_task(session, p, audio_queue)`
+     - Opens the microphone stream and reads PCM chunks.
+     - Uses `loop.run_in_executor` to avoid blocking the event loop while reading audio.
+     - Sends each chunk to Gemini with `session.send_realtime_input(media=types.Blob(...))`.
 
----
+ - `audio_output_task(audio_queue, p)`
+     - Opens the output (speaker) stream.
+     - Awaits audio chunks on an asyncio queue and writes them to the speaker via `run_in_executor`.
 
-## Main Components
+ - `main()`
+     - Creates the `genai.Client` and global audio objects.
+     - Starts a persistent `audio_output_task`.
+     - Connects to Gemini in a reconnection loop, starts per-session `audio_input_task`, and consumes `session.receive()`.
+     - On server disconnect, cancels the input task and reconnects after a brief sleep.
 
-### 1. Environment Setup
-- Loads API key from `.env` using `dotenv`.
-- Imports required libraries: `asyncio`, `pyaudio`, `google-genai`, etc.
+    ## Diagrams (Mermaid)
 
-### 2. Audio Configuration
-- **Format**: PCM Int16, mono, 24kHz
-- **Buffer (`CHUNK`)**: 2048 samples (~85ms) for smooth, stable streaming
+    High-level architecture:
 
-### 3. Model Configuration
-- **Model**: `gemini-2.5-flash-native-audio-preview-12-2025`
-- **Persona**: Defined in `system_instruction` (childish, supportive, research-focused)
-- **VAD**: Server-side, with low sensitivity and 600ms silence threshold
-- **Voice**: "Aoede" (female, friendly)
-- **Max Output Tokens**: 8192 (allows long responses)
+    ```mermaid
+    flowchart LR
+        Mic[Microphone]
+        SubgraphInput[audio_input_task]
+        SubgraphOutput[audio_output_task]
+        Gemini[Google Gemini Live]
+        Speaker[Speaker]
 
-### 4. Audio Input Task
-- Opens microphone stream
-- Reads audio in chunks
-- Sends each chunk to Gemini via `session.send_realtime_input`
-- Runs in its own async task
-
-### 5. Audio Output Task
-- Opens speaker stream
-- Waits for audio chunks from Gemini
-- Plays each chunk asynchronously
-- Runs in its own async task
-
-### 6. Main Loop
-- Creates Gemini client
-- Starts output task (speaker)
-- Enters reconnection loop:
-    - Connects to Gemini Live API
-    - Starts input task (microphone)
-    - Receives responses:
-        - Streams audio to speaker
-        - Prints text responses to console
-    - Handles disconnects and errors
-    - Cleans up tasks and resources
-
-### 7. Error Handling & Reconnection
-- Catches and logs all exceptions
-- Automatically reconnects after server disconnects or errors
-- Ensures microphone/speaker streams are closed cleanly
-
----
-
-## Persona & Behavior
-- **Childish, enthusiastic, supportive**
-- **Research-focused**: Prioritizes accuracy and clarity for technical topics
-- **Behavior rules**: Never hallucinate, always return to the question, adapt energy, pause if user overwhelmed
-- **Exit condition**: If user says "exit" or "quit", agent says goodbye and ends session
-
----
-
-## Configuration Details
-- **VAD (Voice Activity Detection)**:
-    - `start_of_speech_sensitivity`: Low (avoids false triggers)
-    - `silence_duration_ms`: 600ms (waits for user to finish speaking)
-- **Audio Buffer**: 2048 samples (balances latency and stability)
-- **Voice**: "Aoede" (prebuilt Gemini voice)
-- **Max Output Tokens**: 8192 (long responses allowed)
-
----
-
-## Usage
-1. Set your Google API key in a `.env` file as `GOOGLE_API_KEY`.
-2. Install dependencies: `pyaudio`, `python-dotenv`, `google-genai`.
-3. Run the script:
-    ```powershell
-    python .\voice_agent.py
+        Mic -->|PCM chunks| SubgraphInput
+        SubgraphInput -->|realtime input| Gemini
+        Gemini -->|audio parts| SubgraphOutput
+        SubgraphOutput -->|PCM audio| Speaker
     ```
-4. Speak into your microphone. The agent will respond in real time.
-5. To exit, say "exit" or "quit".
 
----
+    Sequence diagram for connection, streaming and reconnection:
 
-## Troubleshooting
-- **Audio breaking or disconnects**: Buffer size (`CHUNK`) is optimized for stability. If issues persist, try increasing or decreasing `CHUNK`.
-- **Agent interrupts itself**: Use headphones to prevent echo/interruption.
-- **Server disconnects**: Script will auto-reconnect. Persistent issues may be network-related.
+    ```mermaid
+    sequenceDiagram
+        participant Client
+        participant Mic
+        participant Gemini
+        participant Speaker
 
----
+        Client->>Mic: open stream (audio_input_task)
+        Client->>Speaker: open stream (audio_output_task)
+        loop streaming
+            Mic-->>Client: send CHUNK
+            Client-->>Gemini: session.send_realtime_input(blob)
+            Gemini-->>Client: model_turn (audio/text)
+            Client-->>Speaker: enqueue audio
+        end
+        Gemini-->>Client: server_closed_connection
+        Client->>Client: cancel input_task, sleep, reconnect
+    ```
 
-## Extending the Agent
-- Change persona by editing `system_instruction`.
-- Adjust VAD sensitivity for different environments.
-- Add tools or memory features by extending the config and main loop.
+ ## Runtime notes & tuning guidance
+ - If responses cut off mid-speech, try these in order:
+     1. Confirm `CHUNK` is `2048`. Larger chunks can raise latency and increase server timeouts; smaller chunks increase packet rate and CPU overhead.
+     2. Increase `silence_duration_ms` in `CONFIG` to `1000`–`2000` ms to make the server wait longer for end-of-speech before starting a reply.
+     3. Use headphones to eliminate feedback loops where the mic picks up the model's audio.
+     4. Check network stability — intermittent connectivity can cause the server to close the connection.
 
----
+ ## How to run
+ 1. Ensure your `.env` contains `GOOGLE_API_KEY`.
+ 2. Install Python deps (example):
 
-## References
-- [Google Gemini Live API Documentation](https://ai.google.dev/docs/gemini-live)
-- [PyAudio Documentation](https://people.csail.mit.edu/hubert/pyaudio/)
-- [Python Asyncio](https://docs.python.org/3/library/asyncio.html)
+ ```bash
+ pip install pyaudio python-dotenv google-genai
+ ```
 
----
+ 3. Run the agent:
 
-## License
-This script is provided for educational and research purposes. Adapt and extend as needed for your own projects.
+ ```powershell
+ python .\\voice_agent.py
+ ```
+
+ ## Troubleshooting hints
+ - `Input Error` / `Output Error` prints include tracebacks — share them if you need help debugging.
+ - If the model closes the connection immediately after connecting, check `CONFIG` for unsupported realtime fields (some models/API versions may reject unknown or unsupported keys).
+ - If audio is choppy but connection remains, try a small `CHUNK` change: `1024` or `2048` are common sweet spots.
+
+ ## Next steps you might want
+ - Add an explicit VAD client-side signal (if supported) and toggle automatic detection.
+ - Add logging of response timing (timestamps) to diagnose mid-response disconnects.
+ - Add optional toggles in the prompt to force "Playful" or "Technical" modes on demand (e.g., voice commands like "be technical now").
+
+ ---
+
+ If you want, I can also:
+ - Increase `silence_duration_ms` to 1–2s and test.
+ - Add a runtime flag to switch personality modes manually.
+ - Add a small test harness that sends prerecorded audio to the session for debugging.
+
