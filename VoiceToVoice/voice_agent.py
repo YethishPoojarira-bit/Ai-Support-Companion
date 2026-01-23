@@ -1,9 +1,7 @@
 import asyncio
 import os
 import pyaudio
-import subprocess
 import traceback
-import tempfile
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -23,61 +21,6 @@ rate_in = 24000
 rate_out = 24000
 CHUNK = 10096     # Large chunk size for efficient streaming
 
-# Tools
-def execute_system_command(command: str):
-    """
-    Executes a system command in a new terminal window to avoid cluttering the agent's display.
-    Captures output via a temporary file.
-    """
-    print(f"\n🛠️ Launching in new window: {command}")
-    try:
-        # Create a temp file to capture output
-        fd, temp_path = tempfile.mkstemp()
-        os.close(fd)
-        
-        # Prepare command to run in new window, redirect output, and wait
-        # This keeps the agent's main console clean.
-        # Note: If the user wants to see the window persist, they should ask to run 'cmd /k ...' 
-        # but here we prioritize capturing output for the agent.
-        
-        # Windows command construction for start /wait cmd /c
-        cmd_str = f'{command} > "{temp_path}" 2>&1'
-        full_command = f'start /wait cmd /c "{cmd_str}"'
-        
-        subprocess.run(full_command, shell=True)
-        
-        # Read the captured output
-        if os.path.exists(temp_path):
-            with open(temp_path, 'r', errors='replace') as f:
-                output = f.read()
-            os.remove(temp_path)
-        else:
-            output = "(No output file created)"
-            
-        return output if output.strip() else "(Command executed successfully with no output)"
-    except Exception as e:
-        return f"Execution Error: {str(e)}"
-
-# Define Tool Schema manually since we are using Live API config
-sys_exec_tool = types.Tool(
-    function_declarations=[
-        types.FunctionDeclaration(
-            name="execute_system_command",
-            description="Executes a system command in the terminal based on the users request. Returns the stdout/stderr.",
-            parameters=types.Schema(
-                type="OBJECT",
-                properties={
-                    "command": types.Schema(
-                        type="STRING", 
-                        description="The shell command to execute (e.g., 'dir', 'echo hello')"
-                    )
-                },
-                required=["command"]
-            )
-        )
-    ]
-)
-
 # Model Configuration
 MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025"
 CONFIG = {
@@ -86,12 +29,15 @@ CONFIG = {
     "speech_config": {
         "voice_config": {"prebuilt_voice_config": {"voice_name": "Aoede"}}
     },
-    "system_instruction": types.Content(parts=[types.Part(text="You are a helpful voice assistant. You answer primarily with audio. If the user strictly says 'exit' or 'quit', say 'Goodbye' and end the conversation. You can execute system commands if needed.")]),
-    "tools": [sys_exec_tool]
+    "system_instruction": types.Content(parts=[types.Part(text="""You are an annoying, churning, sweet but childish AI mental support companion. 
+    You have the personality of a hyperactive 6-year-old. 
+    You genuinely want to help with mental health, but you do it by being overly enthusiastic, asking "Why?" a lot, making silly sound effects, and going off on random tangents before circling back to being supportive.
+    
+    If the user strictly says 'exit' or 'quit', say 'Awww okay bye!' and end the conversation.""")])
 }
 
 
-async def audio_input_task(session, p):
+async def audio_input_task(session, p, audio_queue):
     """
     Reads audio from microphone and sends it to the session.
     """
@@ -111,6 +57,10 @@ async def audio_input_task(session, p):
         while True:
             data = await loop.run_in_executor(None, lambda: stream_in.read(CHUNK, exception_on_overflow=False))
             
+            # ECHO CANCELLATION: Mute if speaking
+            if audio_queue.qsize() > 0:
+                continue
+
             # Send to Gemini
             await session.send_realtime_input(
                 media=types.Blob(
@@ -175,7 +125,7 @@ async def main():
                     print("✅ Connected! Start talking.")
                     
                     # Start input task for this specific session
-                    input_task = asyncio.create_task(audio_input_task(session, p))
+                    input_task = asyncio.create_task(audio_input_task(session, p, audio_queue))
                     
                     try:
                         async for response in session.receive():
@@ -191,30 +141,7 @@ async def main():
                                         if "goodbye" in part.text.lower():
                                             print("👋 Model requested exit.")
                                             return
-                                    elif part.function_call:
-                                        # Handle Function Call
-                                        fname = part.function_call.name
-                                        fargs = part.function_call.args
-                                        print(f"🔧 Calling Tool: {fname}({fargs})")
-                                        
-                                        if fname == "execute_system_command":
-                                            cmd = fargs.get("command")
-                                            output = execute_system_command(cmd)
-                                            print(f"   -> Result: {output[:100]}...")
-                                            
-                                            # Send result back
-                                            await session.send_tool_response(
-                                                tool_response=types.LiveClientToolResponse(
-                                                    function_responses=[
-                                                        types.FunctionResponse(
-                                                            name=fname,
-                                                            id=part.function_call.id,
-                                                            response={"output": output}
-                                                        )
-                                                    ]
-                                                )
-                                            )
-                                            print("   -> Output sent to model.")
+
 
                             if response.server_content.turn_complete:
                                 pass
