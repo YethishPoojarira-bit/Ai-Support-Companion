@@ -19,16 +19,19 @@ FORMAT = pyaudio.paInt16
 CHANNELS = 1
 rate_in = 24000
 rate_out = 24000
-CHUNK = 4096      # optimized chunk size for stability (approx 170ms latency)
+CHUNK = 2048      # Optimized to 2048 (approx 85ms) for connection stability
 
 # Model Configuration
 MODEL_ID = "gemini-2.5-flash-native-audio-preview-12-2025"
 CONFIG = {
     "response_modalities": ["AUDIO"],
-    "max_output_tokens": 8192,
+    "max_output_tokens": 8192, 
     "realtime_input_config": {
-        "activity_handling": "NO_INTERRUPTION"
-    }, 
+        "automatic_activity_detection": {
+            "start_of_speech_sensitivity": "START_SENSITIVITY_LOW",
+            "silence_duration_ms": 600 
+        }
+    },
     "speech_config": {
         "voice_config": {"prebuilt_voice_config": {"voice_name": "Aoede"}}
     },
@@ -101,6 +104,7 @@ async def audio_input_task(session, p, audio_queue):
     
     try:
         while True:
+            # exception_on_overflow=False prevents crashes if CPU is busy
             data = await loop.run_in_executor(None, lambda: stream_in.read(CHUNK, exception_on_overflow=False))
             
             # Send to Gemini
@@ -203,7 +207,9 @@ async def main():
                 await asyncio.sleep(2)
                 
             except Exception as e:
-                print(f"\n❌ Connection Error: {e}")
+                print(f"\n❌ Connection Error: {type(e).__name__}: {e}")
+                import traceback
+                traceback.print_exc()
                 print("🔄 Retrying in 5 seconds...")
                 await asyncio.sleep(5)
     
