@@ -1,0 +1,28 @@
+{
+  "name": "research-based-thinking",
+  "version": "1.0.0",
+  "description": "",
+  "main": "run.ts",
+  "scripts": {
+    "start": "ts-node run.ts",
+    "genkit:start": "genkit start -- npm start"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@langchain/openai": "^1.2.3",
+    "dotenv": "^16.4.0",
+    "genkit": "^0.9.0",
+    "genkitx-azure-openai": "^0.30.0",
+    "langchain": "^1.2.15",
+    "langsmith": "^0.4.10",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "genkit-cli": "^1.28.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}
