@@ -2,7 +2,7 @@ import { researchTopic, ResearchTopicInput } from './testing';
 
 async function main() {
   const input: ResearchTopicInput = {
-    jobRole: 'Business Developer',
+    role: 'Business Developer',
     companyName: 'Google',
     weeks: 4
   };

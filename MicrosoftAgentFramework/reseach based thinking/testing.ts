@@ -12,7 +12,7 @@ import { z } from 'zod';
 import { traceable } from 'langsmith/traceable';
 
 const ResearchTopicInputSchema = z.object({
-  jobRole: z.string().describe('The job title to research.'),
+  role: z.string().describe('The job title to research.'),
   companyName: z.string().describe('The name of the company for research.'),
   weeks: z.number().default(4).describe('Number of weeks for preparation.')
 });
@@ -58,7 +58,7 @@ You are a Source Discovery Agent.
 Your goal is to find trustworthy web sources and EXISTING STUDY PLANS to help prepare for a specific job interview.
 Target:
 - Company: {{companyName}}
-- Job Role: {{jobRole}}
+- Job Role: {{role}}
 
 Your responsibility is to identify authoritative web entry points where we can find:
 1. Company culture, values, tech stack, and engineering practices.
@@ -90,7 +90,7 @@ Your Goal: Create a "Key Topics to Prepare" study plan based on the provided tru
 
 Context:
 - Company: {{companyName}}
-- Job Role: {{jobRole}}
+- Job Role: {{role}}
 
 Sources to Analyze:
 {{trustedSources}}
@@ -135,7 +135,7 @@ Your Goal: Break down high-level study topics into a COMPREHENSIVE list of small
 
 Context:
 - Company: {{companyName}}
-- Job Role: {{jobRole}}
+- Job Role: {{role}}
 
 Input Data:
 {{topicsJson}}
@@ -180,7 +180,7 @@ Your Goal: Create a detailed week-by-week study schedule using ALL provided atom
 
 Context:
 - Company: {{companyName}}
-- Job Role: {{jobRole}}
+- Job Role: {{role}}
 - Timeline: {{weeks}} weeks
 
 Input Data:
@@ -225,12 +225,13 @@ const researchTopicFlow = ai.defineFlow(
   },
   (traceable as any)(async (input: ResearchTopicInput) => {
     try {
-      input.jobRole = input.jobRole.trim();
+      input.role = input.role.trim();
       input.companyName = input.companyName.trim();
 
       console.log('SourceDiscovery: Starting...');
-      const sourceDiscoveryFilled = sourceDiscoveryTemplate.replace(/\{\{companyName\}\}/g, input.companyName).replace(/\{\{jobRole\}\}/g, input.jobRole);
-      // console.log('SOURCE_AGENT_PROMPT.format:', sourceDiscoveryFilled);
+      console.log("consoling input.role", input);
+      const sourceDiscoveryFilled = sourceDiscoveryTemplate.replace(/\{\{companyName\}\}/g, input.companyName).replace(/\{\{role\}\}/g, input.role);
+      console.log('SOURCE_AGENT_PROMPT.format:', sourceDiscoveryFilled);
       const { output: sourcesText } = await sourceDiscoveryPrompt(input);
       console.log('Discovered Sources:', sourcesText);
       
@@ -241,7 +242,7 @@ const researchTopicFlow = ai.defineFlow(
       const trustedSources = JSON.stringify(sources || []);
 
       console.log('TopicExtraction: Starting...');
-      const topicExtractionFilled = topicExtractionTemplate.replace(/\{\{companyName\}\}/g, input.companyName).replace(/\{\{jobRole\}\}/g, input.jobRole).replace(/\{\{trustedSources\}\}/g, trustedSources);
+      const topicExtractionFilled = topicExtractionTemplate.replace(/\{\{companyName\}\}/g, input.companyName).replace(/\{\{role\}\}/g, input.role).replace(/\{\{trustedSources\}\}/g, trustedSources);
       // console.log('TOPIC_EXTRACTION_PROMPT.format:', topicExtractionFilled);
       const { output: topics } = await topicExtractionPrompt({
         ...input,
