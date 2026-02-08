@@ -101,15 +101,35 @@ LlamaIndex is the most advanced orchestration framework for:
 
 ---
 
+## 5. Google Genkit (Firebase)
+
+**Best for: Product Engineering & Full-Stack Integration**
+
+Use this if you are a web or mobile developer (TypeScript/Go) building AI features directly into a production application backend and prioritize "Developer Experience" (DX) over complex autonomous agent theory.
+
+*   **You need "Local Debugging":** Genkit offers a best-in-class local Developer UI to run traces, test prompts, and debug flows hot-reload style.
+*   **You want "Strong Typing":** Everything uses Zod schemas for strict input/output validation, making it ideal for production APIs.
+*   **You use Firebase / GCP:** It is designed to deploy effortlessly to Cloud Functions or Cloud Run, with native observability (OpenTelemetry).
+
+### Key Capabilities
+| Capability | Description |
+| --- | --- |
+| Developer UI | Visual playground & trace inspection |
+| Dotprompt | Prompt-as-code with structured output |
+| Flows | Strongly typed, observable functions |
+| Plugins | Modular model/vector support (Vertex, Ollama) |
+
+---
+
 ## Summary Comparison Table
 
-| Feature | LangGraph | Semantic Kernel | CrewAI | LlamaIndex |
-| --- | --- | --- | --- | --- |
-| Workflow Type | Graph / DAG | Skill planner | Role-based agents | RAG pipelines |
-| Multi-Agent | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ |
-| Enterprise Fit | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ |
-| Observability | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
-| Best Use Case | Complex workflows | Enterprise copilots | Multi-agent teams | Knowledge workflows |
+| Feature | LangGraph | Semantic Kernel | CrewAI | LlamaIndex | Google Genkit |
+| --- | --- | --- | --- | --- | --- |
+| Workflow Type | Graph / DAG | Skill planner | Role-based agents | RAG pipelines | Functional flows |
+| Multi-Agent | ⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
+| Enterprise Fit | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Observability | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ | ⭐⭐⭐⭐⭐ |
+| Best Use Case | Complex workflows | Enterprise copilots | Multi-agent teams | Knowledge workflows | Production Apps |
 
 ---
 
@@ -132,6 +152,10 @@ LlamaIndex is the most advanced orchestration framework for:
 ### 4. Business Automation / Enterprise Ops
 *   **Semantic Kernel** = policy, security, logs
 *   **LangGraph** = reliable sequences
+
+### 5. App Backend / API Features
+*   **Google Genkit** = structured output & debugging
+*   **LangGraph** = complex flow logic
 
 ---
 
@@ -186,6 +210,14 @@ Here are a few scenarios that illustrate when to use each framework:
 **Recommendation**: A combination of **LangGraph** and **Semantic Kernel**.
 
 *   **Why**: **LangGraph** provides the robust, controllable workflow needed for a multi-step process like this (fetch data, calculate metrics, visualize results, summarize findings). **Semantic Kernel** excels at securely connecting to enterprise data sources and wrapping your proprietary financial calculation logic into safe, reusable "Plugins" that the agent can call upon.
+
+### Scenario 7: Mobile App Backend with AI Features
+
+**Task**: You are building a mobile app that needs an AI backend to generate personalized travel itineraries and check them against a rigorous JSON schema for the UI.
+
+**Recommendation**: **Google Genkit** is the winner.
+
+*   **Why**: Its strong integration with **Zod** schema validation ensures the AI output perfectly matches your app's UI requirements. The local **Developer UI** allows you to test the prompt against hundreds of test cases and inspect traces before deploying to a serverless function (Firebase/GCP).
 
 ---
 
@@ -243,3 +275,16 @@ Here’s a guide to choosing a framework based on how well it fits your scenario
 
 *   **Possible Scenarios:**
     *   **General-Purpose Agent Collaboration:** While it has agent capabilities, they are primarily focused on data interaction. For process-oriented collaboration, CrewAI is a better fit.
+
+---
+
+#### **5. Google Genkit**
+
+*   **Best-Fit Scenarios:**
+    *   **Full-Stack App Integration:** Adding AI features (summarization, structured data extraction) to a Node.js or Go backend.
+    *   **Strict Output Validation:** When your AI must return perfect JSON to power a UI.
+    *   **Prompt Engineering & Testing:** The "Dotprompt" and Developer UI tools make it the best environment for iterating on prompts.
+
+*   **Possible Scenarios:**
+    *   **Complex Autonomous Agents:** While possible to build agents, it lacks the built-in "team" abstractions of CrewAI.
+    
