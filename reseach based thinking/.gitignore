@@ -1,7 +1,0 @@
-node_modules
-.env
-.genkit
-*.log
-.DS_Store
-dist
-coverage
